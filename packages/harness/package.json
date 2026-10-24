@@ -1,0 +1,22 @@
+{
+  "name": "@heron/harness",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.310",
+    "@heron/core": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@heron/config": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.3"
+  }
+}

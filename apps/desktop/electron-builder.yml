@@ -1,0 +1,33 @@
+appId: dev.heron.desktop
+productName: Heron
+copyright: Copyright © 2026
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  # The Agent SDK ships its own Claude Code binaries; Heron runs the user's installed `claude`.
+  - "!node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - "*.png"
+asarUnpack:
+  - node_modules/better-sqlite3/**
+# better-sqlite3 ships N-API prebuilds that load in Electron as-is.
+npmRebuild: false
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64]
+  # v1 is unsigned (personal use). Signing + notarization come with the public release.
+  identity: null
+  hardenedRuntime: false
+  extendInfo:
+    LSUIElement: false
+    NSUserNotificationAlertStyle: alert
+dmg:
+  title: Heron

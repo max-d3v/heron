@@ -1,0 +1,21 @@
+{
+  "name": "@heron/github",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@heron/core": "workspace:*",
+    "@octokit/rest": "^22.0.1"
+  },
+  "devDependencies": {
+    "@heron/config": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.3"
+  }
+}

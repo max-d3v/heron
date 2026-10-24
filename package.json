@@ -1,0 +1,22 @@
+{
+  "name": "heron",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @heron/desktop dev",
+    "build": "turbo run build",
+    "dist": "pnpm --filter @heron/desktop dist",
+    "typecheck": "turbo run typecheck",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@heron/config": "workspace:*",
+    "eslint": "^10.13.0",
+    "turbo": "^2.11.10",
+    "typescript": "~6.0.3"
+  }
+}
