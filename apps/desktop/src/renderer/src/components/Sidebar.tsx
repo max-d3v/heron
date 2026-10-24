@@ -7,7 +7,7 @@ import { useNow } from "../lib/hooks";
 import { client } from "../lib/rpc";
 import { isListed } from "../lib/visibility";
 import { Avatar } from "./Avatar";
-import { STATUS_LABEL, StatusDot } from "./StatusDot";
+import { PrIcon, prStatusLabel } from "./StatusDot";
 import { Empty, IconButton, Select, Tooltip } from "./ui";
 
 export function Sidebar({
@@ -128,9 +128,9 @@ function PrRow({ pr, selected, now, onClick }: { pr: PrListItem; selected: boole
         !pr.repoEnabled && !selected && "opacity-60",
       )}
     >
-      <Tooltip content={STATUS_LABEL[pr.status] + (pr.headUnreviewed ? " (older commit)" : "")} side="right">
-        <span className="flex h-[18px] items-center">
-          <StatusDot status={pr.status} className={cn(selected && "ring-2 ring-white/70")} />
+      <Tooltip content={prStatusLabel(pr.state, pr.status) + (pr.headUnreviewed ? " (older commit)" : "")} side="right">
+        <span className="flex h-[18px] w-3 items-center justify-center">
+          <PrIcon state={pr.state} status={pr.status} selected={selected} />
         </span>
       </Tooltip>
       <span className="min-w-0 flex-1">

@@ -1,11 +1,11 @@
 import type { PrDetail as PrDetailDto, RunSummary } from "@heron/rpc";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, ExternalLink, Play, RotateCw, Square } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { shortSha } from "../lib/format";
 import { errorText, orpc } from "../lib/rpc";
 import { Avatar } from "./Avatar";
-import { StatusDot } from "./StatusDot";
+import { PrIcon, prStatusLabel } from "./StatusDot";
 import { ActivityTab } from "./tabs/ActivityTab";
 import { PrTab } from "./tabs/PrTab";
 import { ReviewTab } from "./tabs/ReviewTab";
@@ -101,7 +101,9 @@ function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
 
   const active = useMemo(() => pr.runs.find(isActiveRun) ?? null, [pr.runs]);
   const headActive = active?.headSha === pr.headSha;
+  const headRunning = headActive && active !== null && isInFlightRun(active);
   const open = pr.state === "open";
+  const notOpenReason = open ? null : `This PR is ${pr.state}, so it can't be reviewed`;
   const error = reviewNow.error ?? rerun.error ?? cancel.error;
 
   return (
@@ -110,7 +112,11 @@ function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
         {/* The text opts out of dragging so it can be selected and its tooltips work; the gaps still move the window. */}
         <div className="no-drag min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <StatusDot status={pr.status} />
+            <Tooltip content={prStatusLabel(pr.state, pr.status)}>
+              <span className="flex w-3 items-center justify-center">
+                <PrIcon state={pr.state} status={pr.status} />
+              </span>
+            </Tooltip>
             <h1 className="selectable truncate text-[17px] font-semibold leading-[24px] tracking-[-0.01em]">{pr.title}</h1>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-fg-2">
@@ -151,26 +157,29 @@ function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
             </Button>
           ) : (
             shown && (
-              <Button
-                icon={<RotateCw className="size-3.5" />}
-                disabled={!open}
-                busy={rerun.isPending}
-                onClick={() => rerun.mutate({ reviewId: shown.id })}
-                title={`Review ${shortSha(shown.headSha)} again`}
-              >
-                Re-run
-              </Button>
+              <ButtonTip content={notOpenReason ?? `Review ${shortSha(shown.headSha)} again`}>
+                <Button
+                  icon={<RotateCw className="size-3.5" />}
+                  disabled={!open}
+                  busy={rerun.isPending}
+                  onClick={() => rerun.mutate({ reviewId: shown.id })}
+                >
+                  Re-run
+                </Button>
+              </ButtonTip>
             )
           )}
-          <Button
-            variant="primary"
-            icon={<Play className="size-3.5" />}
-            disabled={!open || (headActive && active !== null && isInFlightRun(active))}
-            busy={reviewNow.isPending}
-            onClick={() => reviewNow.mutate({ prId: pr.id })}
-          >
-            Review now
-          </Button>
+          <ButtonTip content={notOpenReason ?? (headRunning ? `Already reviewing ${shortSha(pr.headSha)}` : null)}>
+            <Button
+              variant="primary"
+              icon={<Play className="size-3.5" />}
+              disabled={!open || headRunning}
+              busy={reviewNow.isPending}
+              onClick={() => reviewNow.mutate({ prId: pr.id })}
+            >
+              Review now
+            </Button>
+          </ButtonTip>
         </div>
       </div>
       {error && (
@@ -179,5 +188,18 @@ function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
         </div>
       )}
     </header>
+  );
+}
+
+/**
+ * Disabled buttons get no pointer events, so the tooltip hangs off a wrapper and the
+ * button lets the pointer through to it. The wrapper also opts out of window dragging.
+ */
+function ButtonTip({ content, children }: { content: string | null; children: ReactElement }) {
+  if (!content) return children;
+  return (
+    <Tooltip content={content}>
+      <span className="no-drag inline-flex [&>button:disabled]:pointer-events-none">{children}</span>
+    </Tooltip>
   );
 }
