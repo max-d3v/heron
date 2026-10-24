@@ -27,7 +27,7 @@ import type { GitClient } from "@heron/git";
 import { RunAbortedError, killTree } from "@heron/harness";
 import type { Bus } from "./bus.ts";
 import type { Paths } from "./paths.ts";
-import { SupersededError, type Pipeline } from "./pipeline.ts";
+import { PrClosedError, SupersededError, type Pipeline } from "./pipeline.ts";
 import type { Store } from "./store.ts";
 
 export interface SchedulerDeps {
@@ -440,6 +440,13 @@ export class Scheduler {
 
     if (err instanceof SupersededError) {
       store.transition(review, "superseded", { patch: { finishedAt: Date.now() }, message: err.message });
+      this.d.requestPoll();
+      return;
+    }
+
+    if (err instanceof PrClosedError) {
+      // Same as when the poller sees it first; the poll then records the merge/close and cleans up.
+      store.transition(review, "cancelled", { patch: { finishedAt: Date.now() }, message: `PR ${err.state}` });
       this.d.requestPoll();
       return;
     }

@@ -32,6 +32,14 @@ export class SupersededError extends Error {
   }
 }
 
+/** The PR was merged or closed before the poller noticed; the run is cancelled, not failed. */
+export class PrClosedError extends Error {
+  constructor(readonly state: "closed" | "merged") {
+    super(`PR is ${state}`);
+    this.name = "PrClosedError";
+  }
+}
+
 export interface PipelineDeps {
   db: HeronDb;
   store: Store;
@@ -145,7 +153,7 @@ export class Pipeline {
     const { owner, name } = repo;
     const detail = await github.getPull(owner, name, pr.number);
     this.d.db.updatePr(pr.id, { additions: detail.additions, deletions: detail.deletions, changedFiles: detail.changedFiles });
-    if (detail.state !== "open") throw new PermanentError(`PR is ${detail.state}`);
+    if (detail.state !== "open") throw new PrClosedError(detail.state);
     if (review.trigger !== "rerun" && detail.headSha !== review.headSha) throw new SupersededError(detail.headSha);
     signal.throwIfAborted();
 
