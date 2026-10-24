@@ -1,7 +1,7 @@
 import type { PrListItem, QueueStatusDto } from "@heron/rpc";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitPullRequest } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Banner } from "./components/Banner";
 import { DoctorScreen } from "./components/Doctor";
 import { PrDetail } from "./components/PrDetail";
@@ -9,18 +9,22 @@ import { Sidebar } from "./components/Sidebar";
 import { Empty, TooltipProvider } from "./components/ui";
 import { useStream } from "./lib/hooks";
 import { client, orpc } from "./lib/rpc";
+import { isListed } from "./lib/visibility";
 import { Settings, type SettingsTab } from "./settings/Settings";
 
 export function App() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<number | null>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   const prs = useStream<PrListItem[]>("prs", (signal) => client.prs.watch(undefined, { signal }), "latest");
   const queue = useStream<QueueStatusDto>("queue", (signal) => client.queue.status(undefined, { signal }), "latest").latest;
   const doctor = useQuery({ ...orpc.doctor.get.queryOptions(), refetchInterval: (q) => (q.state.data ? false : 1000) });
   const repos = useQuery(orpc.repos.list.queryOptions());
   const list = prs.latest;
+  const listed = useMemo(() => (list ?? []).filter((p) => isListed(p, showAll)), [list, showAll]);
+  const hiddenCount = (list?.length ?? 0) - (list ?? []).filter((p) => isListed(p, false)).length;
 
   // Live updates: whenever the PR list changes, refresh what the detail view shows.
   useEffect(() => {
@@ -34,12 +38,12 @@ export function App() {
     void qc.invalidateQueries({ queryKey: orpc.doctor.key() });
   }, [pauseReasons, qc]);
 
+  // Keep the selection on a PR the sidebar lists; with none listed, select nothing.
   useEffect(() => {
-    if (selected === null && list && list.length > 0) {
-      const first = list.find((p) => p.inScope || p.status !== "not_reviewed") ?? list[0]!;
-      setSelected(first.id);
-    }
-  }, [list, selected]);
+    if (!list) return;
+    if (selected !== null && listed.some((p) => p.id === selected)) return;
+    setSelected(listed[0]?.id ?? null);
+  }, [list, listed, selected]);
 
   const openSettings = useCallback((tab: SettingsTab = "repos") => setSettingsTab(tab), []);
 
@@ -87,6 +91,8 @@ export function App() {
           onSelect={setSelected}
           onOpenSettings={() => openSettings()}
           queue={queue}
+          showAll={showAll}
+          onShowAllChange={setShowAll}
         />
         <main className="flex min-w-0 flex-1 flex-col bg-content">
           <Banner queue={queue} onOpenSetup={() => openSettings("general")} />
@@ -96,13 +102,24 @@ export function App() {
             ) : (
               <div className="relative h-full">
                 <div className="drag absolute inset-x-0 top-0 h-[52px]" />
-                <Empty icon={<GitPullRequest className="size-8" />} title={(repos.data?.length ?? 0) === 0 ? "Add a repository to get started" : "Select a pull request"}>
-                  {(repos.data?.length ?? 0) === 0 && (
+                {(repos.data?.length ?? 0) === 0 ? (
+                  <Empty icon={<GitPullRequest className="size-8" />} title="Add a repository to get started">
                     <button className="text-accent hover:underline" onClick={() => openSettings("repos")}>
                       Open Settings → Repos
                     </button>
-                  )}
-                </Empty>
+                  </Empty>
+                ) : listed.length === 0 ? (
+                  <Empty icon={<GitPullRequest className="size-8" />} title="No PRs in scope">
+                    PRs show up here when they're in a repo's scope or have been reviewed.
+                    {hiddenCount > 0 && (
+                      <button className="mt-1 block w-full text-accent hover:underline" onClick={() => setShowAll(true)}>
+                        Show {hiddenCount} other open PR{hiddenCount === 1 ? "" : "s"}
+                      </button>
+                    )}
+                  </Empty>
+                ) : (
+                  <Empty icon={<GitPullRequest className="size-8" />} title="Select a pull request" />
+                )}
               </div>
             )}
           </div>

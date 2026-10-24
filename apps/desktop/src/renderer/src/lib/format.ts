@@ -21,7 +21,7 @@ export function relativeTime(ts: number | null | undefined, now = Date.now()): s
 /** "just now", "5m ago", "3d ago". */
 export function ago(ts: number | null | undefined, now = Date.now()): string {
   if (!ts) return "";
-  const r = relativeTime(ts, now);
+  const r = relativeTime(Math.min(ts, now), now);
   if (r === "now") return "just now";
   return /^\d/.test(r) ? `${r} ago` : r;
 }

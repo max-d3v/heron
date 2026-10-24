@@ -5,6 +5,7 @@ import { cn } from "../lib/cn";
 import { relativeTime } from "../lib/format";
 import { useNow } from "../lib/hooks";
 import { client } from "../lib/rpc";
+import { isListed } from "../lib/visibility";
 import { Avatar } from "./Avatar";
 import { STATUS_LABEL, StatusDot } from "./StatusDot";
 import { Empty, IconButton, Select, Tooltip } from "./ui";
@@ -16,6 +17,8 @@ export function Sidebar({
   onOpenSettings,
   queue,
   loading,
+  showAll,
+  onShowAllChange,
 }: {
   prs: PrListItem[];
   selectedId: number | null;
@@ -23,19 +26,20 @@ export function Sidebar({
   onOpenSettings: () => void;
   queue: QueueStatusDto | null;
   loading: boolean;
+  showAll: boolean;
+  onShowAllChange: (showAll: boolean) => void;
 }) {
   const [search, setSearch] = useState("");
   const [repo, setRepo] = useState("all");
-  const [showAll, setShowAll] = useState(false);
   const now = useNow(30_000);
 
   const repos = useMemo(() => [...new Set(prs.map((p) => p.repo))].sort(), [prs]);
-  const hiddenCount = useMemo(() => prs.filter((p) => !p.inScope && p.status === "not_reviewed").length, [prs]);
+  const hiddenCount = useMemo(() => prs.filter((p) => !isListed(p, false)).length, [prs]);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     return prs.filter((p) => {
-      if (!showAll && !p.inScope && p.status === "not_reviewed") return false;
+      if (!isListed(p, showAll)) return false;
       if (repo !== "all" && p.repo !== repo) return false;
       if (!q) return true;
       return (
@@ -100,7 +104,7 @@ export function Sidebar({
         {hiddenCount > 0 || showAll ? (
           <Tooltip content={showAll ? "Hide PRs outside each repo's scope" : `Show ${hiddenCount} open PRs outside each repo's scope`}>
             <button
-              onClick={() => setShowAll((v) => !v)}
+              onClick={() => onShowAllChange(!showAll)}
               className="flex h-[24px] items-center gap-1.5 rounded-[6px] px-2 text-[11.5px] text-fg-2 hover:bg-hover hover:text-fg"
             >
               {showAll ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
@@ -133,7 +137,8 @@ function PrRow({ pr, selected, now, onClick }: { pr: PrListItem; selected: boole
         <span className="flex items-baseline gap-2">
           <span className={cn("truncate text-[13px] font-[500] leading-[18px]", closed && !selected && "text-fg-2")}>{pr.title}</span>
           <span className={cn("ml-auto shrink-0 text-[11px] tabular-nums", selected ? "text-white/75" : "text-fg-3")}>
-            {relativeTime(pr.lastActivityAt, now)}
+            {/* The clock ticks every 30s, so a fresh timestamp can be slightly ahead of it. */}
+            {relativeTime(Math.min(pr.lastActivityAt, now), now)}
           </span>
         </span>
         <span className={cn("mt-0.5 flex items-center gap-1.5 text-[11.5px]", selected ? "text-white/80" : "text-fg-2")}>
