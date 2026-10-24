@@ -21,6 +21,7 @@ import {
   type Skill,
   type SkillSource,
   type StepState,
+  type TokenUsage,
 } from "@heron/core";
 import { MIGRATIONS } from "./migrations.ts";
 
@@ -95,6 +96,7 @@ function toReview(r: Row): Review {
     payload: json<ReviewPayload>(r.payload_json),
     githubReviewId: num(r.github_review_id),
     githubReviewUrl: str(r.github_review_url),
+    usage: json<TokenUsage>(r.usage_json),
     startedAt: num(r.started_at),
     finishedAt: num(r.finished_at),
     createdAt: Number(r.created_at),
@@ -159,6 +161,7 @@ export interface ReviewPatch {
   payload?: ReviewPayload | null;
   githubReviewId?: number | null;
   githubReviewUrl?: string | null;
+  usage?: TokenUsage | null;
   startedAt?: number | null;
   finishedAt?: number | null;
 }
@@ -179,6 +182,7 @@ const REVIEW_COLUMNS: Record<keyof ReviewPatch, [string, (v: never) => unknown]>
   payload: ["payload_json", (v) => (v === null ? null : JSON.stringify(v))],
   githubReviewId: ["github_review_id", (v) => v],
   githubReviewUrl: ["github_review_url", (v) => v],
+  usage: ["usage_json", (v) => (v === null ? null : JSON.stringify(v))],
   startedAt: ["started_at", (v) => v],
   finishedAt: ["finished_at", (v) => v],
 };
@@ -480,6 +484,23 @@ export class HeronDb {
     const info = this.sql.prepare(`UPDATE reviews SET ${sets.join(", ")} WHERE ${where}`).run(...values);
     if (info.changes === 0) return null;
     return this.getReview(id);
+  }
+
+  /** Add a run's tokens to the review's total (a retried run spends them again). */
+  addReviewUsage(id: number, usage: TokenUsage): void {
+    this.tx(() => {
+      const prev = this.getReview(id)?.usage;
+      this.updateReview(id, {
+        usage: prev
+          ? {
+              input: prev.input + usage.input,
+              output: prev.output + usage.output,
+              cacheRead: prev.cacheRead + usage.cacheRead,
+              cacheWrite: prev.cacheWrite + usage.cacheWrite,
+            }
+          : usage,
+      });
+    });
   }
 
   // ── activity ────────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ export class Poller {
   private timer: NodeJS.Timeout | null = null;
   private inFlight: Promise<void> | null = null;
   private pausedUntil = 0;
+  private stopped = false;
 
   constructor(private readonly d: PollerDeps) {}
 
@@ -26,12 +27,16 @@ export class Poller {
     this.schedule(1000);
   }
 
-  stop(): void {
+  /** Quit: no more polls; resolves once a poll in flight has finished writing. */
+  stop(): Promise<void> {
+    this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    return this.inFlight ?? Promise.resolve();
   }
 
   private schedule(ms: number): void {
+    if (this.stopped) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       void this.pollAll().finally(() => this.schedule(this.d.intervalSec() * 1000));
@@ -46,8 +51,9 @@ export class Poller {
   pollAll(): Promise<void> {
     if (this.inFlight) return this.inFlight;
     this.inFlight = (async () => {
-      if (!this.d.ready() || Date.now() < this.pausedUntil) return;
+      if (this.stopped || !this.d.ready() || Date.now() < this.pausedUntil) return;
       for (const repo of this.d.db.listRepos()) {
+        if (this.stopped) break;
         if (!repo.enabled) continue;
         const stop = await this.pollRepo(repo);
         if (stop) break;

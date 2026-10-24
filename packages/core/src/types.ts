@@ -114,6 +114,14 @@ export interface ProfileSnapshot {
   dryRun: boolean;
 }
 
+/** Tokens a run spent, summed over every model call (subagents included). */
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
 export interface Review {
   id: number;
   prId: number;
@@ -138,6 +146,8 @@ export interface Review {
   payload: ReviewPayload | null;
   githubReviewId: number | null;
   githubReviewUrl: string | null;
+  /** Summed across attempts, since a retried run spends tokens again. */
+  usage: TokenUsage | null;
   startedAt: number | null;
   finishedAt: number | null;
   createdAt: number;

@@ -22,6 +22,7 @@ import {
   reviewJsonSchema,
   type AgentStep,
   type EffortLevel,
+  type TokenUsage,
 } from "@heron/core";
 import { stripEnv } from "./env.ts";
 import { buildSystemPromptAppend, type HeronFiles, type PrContext } from "./prompt.ts";
@@ -53,6 +54,8 @@ export interface RunReviewOptions {
   onStep: (step: AgentStep) => void;
   onSpawn: (pid: number) => void;
   onInit: (info: { sessionId: string; model: string }) => void;
+  /** Called once the run reports its totals, failed runs included. */
+  onUsage: (usage: TokenUsage) => void;
 }
 
 export interface RunReviewResult {
@@ -198,7 +201,18 @@ export async function runReview(o: RunReviewOptions): Promise<RunReviewResult> {
         limitResetAt = resetAtFrom(msg.rate_limit_info.resetsAt) ?? Date.now() + 15 * 60_000;
       }
       if (msg.type === "assistant" && msg.error) assistantError = msg.error;
-      if (msg.type === "result") result = msg;
+      if (msg.type === "result") {
+        result = msg;
+        const models = Object.values(msg.modelUsage);
+        if (models.length > 0) {
+          o.onUsage({
+            input: models.reduce((n, m) => n + m.inputTokens, 0),
+            output: models.reduce((n, m) => n + m.outputTokens, 0),
+            cacheRead: models.reduce((n, m) => n + m.cacheReadInputTokens, 0),
+            cacheWrite: models.reduce((n, m) => n + m.cacheCreationInputTokens, 0),
+          });
+        }
+      }
       for (const s of messageToSteps(o.cwd, msg)) step(s);
     }
   } catch (err) {

@@ -70,6 +70,7 @@ export const runSummary = z.object({
   finishedAt: z.number().nullable(),
   createdAt: z.number(),
   githubReviewUrl: z.string().nullable(),
+  usage: z.object({ input: z.number(), output: z.number(), cacheRead: z.number(), cacheWrite: z.number() }).nullable(),
 });
 
 const diffContextLine = z.object({

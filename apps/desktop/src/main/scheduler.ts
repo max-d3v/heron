@@ -60,6 +60,7 @@ export class Scheduler {
   private readonly runs = new Map<number, ActiveRun>();
   private timer: NodeJS.Timeout | null = null;
   private ticking = false;
+  private stopped = false;
   private limitUntil: number | null = null;
   private limitMessage: string | null = null;
   private authMessage: string | null = null;
@@ -89,13 +90,14 @@ export class Scheduler {
     return this.runs.size;
   }
 
-  /** Quit: abort running reviews (state is kept, so they resume next launch) and wait briefly. */
+  /** Quit: abort running reviews (state is kept, so they resume next launch) and wait for them to wind down. */
   async shutdown(): Promise<void> {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     const pending = [...this.runs.values()];
     for (const run of pending) run.ac.abort("quit");
-    await Promise.race([Promise.allSettled(pending.map((r) => r.promise)), new Promise((r) => setTimeout(r, 8000))]);
+    await Promise.allSettled(pending.map((r) => r.promise));
   }
 
   // ── pause ─────────────────────────────────────────────────────────────────
@@ -356,7 +358,8 @@ export class Scheduler {
   // ── the loop ──────────────────────────────────────────────────────────────
 
   tick(): void {
-    if (this.ticking) return;
+    // After shutdown the database is about to close (a run winding down still schedules a tick).
+    if (this.ticking || this.stopped) return;
     this.ticking = true;
     try {
       const { db, store } = this.d;

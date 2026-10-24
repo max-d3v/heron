@@ -280,6 +280,7 @@ export class Pipeline {
         clientApp: `heron/${this.d.version}`,
         onSpawn: (pid) => db.updateReview(review.id, { pid }),
         onInit: ({ sessionId, model }) => db.updateReview(review.id, { sessionId, resolvedModel: model }),
+        onUsage: (usage) => db.addReviewUsage(review.id, usage),
         onStep: (step) => store.step(review, step),
       });
       return { rawOutput: JSON.stringify(result.structuredOutput, null, 2), pid: null };

@@ -122,4 +122,7 @@ export const MIGRATIONS: readonly string[] = [
   CREATE INDEX activity_by_pr ON activity(pr_id, id);
   CREATE INDEX activity_by_review ON activity(review_id, id);
   `,
+  /* 2: token usage per run */ `
+  ALTER TABLE reviews ADD COLUMN usage_json TEXT;
+  `,
 ];

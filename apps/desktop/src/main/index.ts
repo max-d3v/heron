@@ -271,10 +271,16 @@ async function main(): Promise<void> {
         if (response !== 0) return;
       }
       quitConfirmed = true;
-      poller.stop();
-      await scheduler.shutdown();
+      // Everything that writes to the database stops before it closes: a late write
+      // throws "The database connection is not open" in the main process.
+      const idle = await Promise.race([
+        Promise.allSettled([poller.stop(), scheduler.shutdown()]).then(() => true),
+        new Promise<boolean>((r) => setTimeout(() => r(false), 8000)),
+      ]);
       tray.destroy();
-      db.close();
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
+      // Still busy after the wait: the database closes with the process (SQLite replays its WAL on the next open).
+      if (idle) db.close();
       app.quit();
     })();
   });

@@ -1,7 +1,7 @@
 import type { RunSummary } from "@heron/rpc";
 import { ExternalLink } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { dateTime, duration, shortSha } from "../../lib/format";
+import { compactNumber, dateTime, duration, shortSha } from "../../lib/format";
 import { client } from "../../lib/rpc";
 import { Badge, Empty } from "../ui";
 
@@ -21,6 +21,15 @@ const TONE: Record<RunSummary["state"], "gray" | "green" | "red" | "orange" | "b
 
 const TRIGGER: Record<RunSummary["trigger"], string> = { auto: "Push", manual: "Review now", rerun: "Re-run" };
 
+function usageBreakdown(u: NonNullable<RunSummary["usage"]>): string {
+  return [
+    `Input ${u.input.toLocaleString()}`,
+    `Output ${u.output.toLocaleString()}`,
+    `Cache read ${u.cacheRead.toLocaleString()}`,
+    `Cache write ${u.cacheWrite.toLocaleString()}`,
+  ].join(" · ");
+}
+
 export function RunsTab({ runs, selectedId, onOpen }: { runs: RunSummary[]; selectedId: number | null; onOpen: (id: number) => void }) {
   if (runs.length === 0) return <Empty title="No runs yet" />;
   return (
@@ -28,7 +37,7 @@ export function RunsTab({ runs, selectedId, onOpen }: { runs: RunSummary[]; sele
       <table className="w-full border-collapse text-[12px]">
         <thead>
           <tr className="text-left text-[11px] font-medium text-fg-2">
-            {["Commit", "State", "Trigger", "Profile", "Model", "Effort", "Started", "Duration", ""].map((h) => (
+            {["Commit", "State", "Trigger", "Profile", "Model", "Effort", "Started", "Duration", "Tokens", ""].map((h) => (
               <th key={h} className="border-b border-line px-2 py-1.5 font-medium">
                 {h}
               </th>
@@ -54,6 +63,9 @@ export function RunsTab({ runs, selectedId, onOpen }: { runs: RunSummary[]; sele
               <td className="whitespace-nowrap px-2 py-1.5 text-fg-2">{dateTime(r.startedAt ?? r.createdAt)}</td>
               <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-fg-2">
                 {r.startedAt && r.finishedAt ? duration(r.finishedAt - r.startedAt) : ""}
+              </td>
+              <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-fg-2" title={r.usage ? usageBreakdown(r.usage) : undefined}>
+                {r.usage ? compactNumber(r.usage.input + r.usage.output + r.usage.cacheRead + r.usage.cacheWrite) : ""}
               </td>
               <td className="px-2 py-1.5 text-right">
                 {r.githubReviewUrl && (

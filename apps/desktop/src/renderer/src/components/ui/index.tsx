@@ -337,7 +337,7 @@ export function Confirm({
 export function Field({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode; align?: "center" | "start" }) {
   return (
     <div className="grid grid-cols-[minmax(120px,180px)_1fr] items-start gap-x-4 py-2">
-      <div className="text-right text-[13px] leading-[26px] text-fg">{label}</div>
+      <div className="text-[13px] leading-[26px] text-fg">{label}</div>
       <div className="min-w-0">
         <div className="flex min-h-[26px] flex-col items-start justify-center">{children}</div>
         {hint && <div className="mt-1 text-[11.5px] leading-[1.4] text-fg-2">{hint}</div>}

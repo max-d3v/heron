@@ -56,6 +56,13 @@ export function bytes(n: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
 }
 
+const compact = new Intl.NumberFormat([], { notation: "compact", maximumFractionDigits: 1 });
+
+/** "812", "34K", "1.2M". */
+export function compactNumber(n: number): string {
+  return compact.format(n);
+}
+
 export function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }

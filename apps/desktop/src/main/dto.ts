@@ -75,6 +75,7 @@ export function toRunSummary(r: Review): RunSummary {
     finishedAt: r.finishedAt,
     createdAt: r.createdAt,
     githubReviewUrl: r.githubReviewUrl,
+    usage: r.usage,
   };
 }
 
