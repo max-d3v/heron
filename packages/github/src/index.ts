@@ -9,7 +9,9 @@ import {
   foldCommentsIntoBody,
   parseReviewMarker,
   reviewMarker,
+  stripIssueCopyPrompts,
   stripReviewMarker,
+  withIssueCopyPrompts,
   type ObservedPr,
   type PrState,
   type ReviewPayload,
@@ -312,7 +314,7 @@ export class GitHubClient {
       id: c.id,
       author: c.user?.login ?? "ghost",
       createdAt: c.created_at,
-      body: c.body,
+      body: stripIssueCopyPrompts(c.body),
       path: c.path,
       line: c.line ?? c.original_line ?? null,
       side: c.side ?? null,
@@ -327,7 +329,13 @@ export class GitHubClient {
       const marker = parseReviewMarker(r.body);
       if (marker) {
         ourReviewIds.add(r.id);
-        ours.push({ id: r.id, sha: marker.sha, submittedAt: r.submitted_at ?? null, body: stripReviewMarker(r.body ?? ""), comments: [] });
+        ours.push({
+          id: r.id,
+          sha: marker.sha,
+          submittedAt: r.submitted_at ?? null,
+          body: stripIssueCopyPrompts(stripReviewMarker(r.body ?? "")),
+          comments: [],
+        });
       } else if (r.body?.trim()) {
         humanReviews.push({
           id: r.id,
@@ -406,7 +414,8 @@ export class GitHubClient {
   ): Promise<{ id: number; url: string; folded: boolean }> {
     const send = async (p: ReviewPayload) => {
       const marker = reviewMarker(headSha, reviewId);
-      let body = p.body.trim();
+      const posted = withIssueCopyPrompts(p, MAX_BODY);
+      let body = posted.body;
       if (body.length > MAX_BODY) body = `${body.slice(0, MAX_BODY)}\n\n…(truncated)`;
       const { data } = await (await this.client()).rest.pulls.createReview({
         owner,
@@ -415,7 +424,7 @@ export class GitHubClient {
         commit_id: headSha,
         event: "COMMENT",
         body: `${body}\n\n${marker}`,
-        comments: p.comments.map((c) => ({
+        comments: posted.comments.map((c) => ({
           path: c.path,
           line: c.line,
           side: c.side ?? "RIGHT",
