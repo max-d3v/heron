@@ -111,6 +111,12 @@ textarea {
   cursor: auto;
 }
 
+/*
+ * Window dragging. Electron applies these regions at the window level, in document
+ * order (drag adds, no-drag subtracts), regardless of what is layered on top. So
+ * anything that overlays a drag region (settings, dialogs, popovers) must opt out
+ * explicitly, or clicks and scrolls on it move the window instead.
+ */
 .drag {
   -webkit-app-region: drag;
 }
@@ -118,7 +124,11 @@ textarea {
 .drag button,
 .drag input,
 .drag a,
-.drag [role="button"] {
+.drag [role="button"],
+[role="dialog"],
+[role="alertdialog"],
+[data-radix-popper-content-wrapper],
+[data-overlay] {
   -webkit-app-region: no-drag;
 }
 

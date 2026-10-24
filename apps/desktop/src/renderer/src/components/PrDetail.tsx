@@ -107,7 +107,8 @@ function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
   return (
     <header className="drag shrink-0 px-5 pb-3 pt-[14px]">
       <div className="flex items-start gap-4">
-        <div className="min-w-0 flex-1">
+        {/* The text opts out of dragging so it can be selected and its tooltips work; the gaps still move the window. */}
+        <div className="no-drag min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <StatusDot status={pr.status} />
             <h1 className="selectable truncate text-[17px] font-semibold leading-[24px] tracking-[-0.01em]">{pr.title}</h1>

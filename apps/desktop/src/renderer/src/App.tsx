@@ -94,10 +94,11 @@ export function App() {
             {selected !== null ? (
               <PrDetail key={selected} prId={selected} />
             ) : (
-              <div className="drag h-full">
+              <div className="relative h-full">
+                <div className="drag absolute inset-x-0 top-0 h-[52px]" />
                 <Empty icon={<GitPullRequest className="size-8" />} title={(repos.data?.length ?? 0) === 0 ? "Add a repository to get started" : "Select a pull request"}>
                   {(repos.data?.length ?? 0) === 0 && (
-                    <button className="no-drag text-accent hover:underline" onClick={() => openSettings("repos")}>
+                    <button className="text-accent hover:underline" onClick={() => openSettings("repos")}>
                       Open Settings → Repos
                     </button>
                   )}

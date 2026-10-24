@@ -270,7 +270,7 @@ export function Dialog({
   return (
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
       <RDialog.Portal>
-        <RDialog.Overlay className="fixed inset-0 z-40 bg-black/20" />
+        <RDialog.Overlay data-overlay className="fixed inset-0 z-40 bg-black/20" />
         <RDialog.Content
           style={{ width }}
           className="fixed left-1/2 top-[12%] z-50 max-h-[76vh] -translate-x-1/2 overflow-hidden rounded-[12px] bg-content shadow-pop outline-none flex flex-col"
@@ -312,7 +312,7 @@ export function Confirm({
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
       <AlertDialog.Portal>
-        <AlertDialog.Overlay className="fixed inset-0 z-40 bg-black/20" />
+        <AlertDialog.Overlay data-overlay className="fixed inset-0 z-40 bg-black/20" />
         <AlertDialog.Content className="fixed left-1/2 top-[22%] z-50 w-[300px] -translate-x-1/2 rounded-[12px] bg-content-2 p-4 text-center shadow-pop outline-none">
           <img src="./heron.png" alt="" className="mx-auto mb-2 size-12" onError={(e) => (e.currentTarget.style.display = "none")} />
           <AlertDialog.Title className="text-[13px] font-semibold">{title}</AlertDialog.Title>

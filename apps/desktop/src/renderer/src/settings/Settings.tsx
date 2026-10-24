@@ -26,7 +26,7 @@ export function Settings({ tab, onTab, onClose }: { tab: SettingsTab; onTab: (t:
   }, [onClose]);
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col bg-content">
+    <div className="no-drag absolute inset-0 z-30 flex flex-col bg-content">
       <div className="drag relative flex h-[76px] shrink-0 items-end justify-center border-b border-line bg-content-2 pb-1.5">
         <div className="flex gap-1">
           {TABS.map((t) => (
