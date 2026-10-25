@@ -269,7 +269,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   parallelRuns: 2,
-  pollIntervalSec: 60,
+  pollIntervalSec: 10,
   debounceMin: 5,
   dryRun: false,
   launchAtLogin: false,

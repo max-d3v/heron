@@ -32,7 +32,7 @@ export function GeneralPane() {
         <NumberInput value={s.parallelRuns} min={1} max={8} onCommit={(v) => set({ parallelRuns: v })} />
       </Field>
       <Field label="Check GitHub every" hint="Unchanged repos cost nothing against the rate limit (ETags).">
-        <NumberInput value={s.pollIntervalSec} min={15} max={3600} suffix="seconds" onCommit={(v) => set({ pollIntervalSec: v })} />
+        <NumberInput value={s.pollIntervalSec} min={10} max={3600} suffix="seconds" onCommit={(v) => set({ pollIntervalSec: v })} />
       </Field>
       <Field label="Wait after a push" hint="Another push in this window restarts it, so a burst of commits gets one review.">
         <NumberInput value={s.debounceMin} min={0} max={120} suffix="minutes" onCommit={(v) => set({ debounceMin: v })} />

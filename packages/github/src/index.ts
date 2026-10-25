@@ -156,6 +156,16 @@ function toObserved(p: ApiPull): ObservedPr {
 /** GitHub caps a review body at 65 536 characters. */
 const MAX_BODY = 65_000;
 
+/** The commit status Heron sets, shown as a row in the PR's checks box. */
+export const REVIEW_STATUS_CONTEXT = "heron/review";
+
+export interface ReviewStatus {
+  state: "pending" | "success" | "error";
+  /** One line; GitHub cuts it at 140 characters. */
+  description: string;
+  targetUrl?: string;
+}
+
 export interface GitHubClientOptions {
   getToken: () => Promise<string>;
   userAgent?: string;
@@ -450,5 +460,20 @@ export class GitHubClient {
       }
       throw classifyGitHubError(err, "Post review");
     }
+  }
+
+  /** Set the `heron/review` status on a commit; the latest one per commit wins. */
+  async setReviewStatus(owner: string, repo: string, sha: string, status: ReviewStatus): Promise<void> {
+    await this.call(`Set ${REVIEW_STATUS_CONTEXT} status`, (o) =>
+      o.rest.repos.createCommitStatus({
+        owner,
+        repo,
+        sha,
+        context: REVIEW_STATUS_CONTEXT,
+        state: status.state,
+        description: status.description.slice(0, 140),
+        ...(status.targetUrl ? { target_url: status.targetUrl } : {}),
+      }),
+    );
   }
 }

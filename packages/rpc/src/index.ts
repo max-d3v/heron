@@ -245,7 +245,7 @@ export const skillFiles = z.object({
 
 export const settings = z.object({
   parallelRuns: z.number().int().min(1).max(8),
-  pollIntervalSec: z.number().int().min(15).max(3600),
+  pollIntervalSec: z.number().int().min(10).max(3600),
   debounceMin: z.number().min(0).max(120),
   dryRun: z.boolean(),
   launchAtLogin: z.boolean(),

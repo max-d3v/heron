@@ -9,6 +9,7 @@ import { GitHubClient, ghAuthToken } from "@heron/github";
 import { probeClaude } from "@heron/harness";
 import type { DoctorReport, ModelOption } from "@heron/rpc";
 import { createBus } from "./bus.ts";
+import { CommitStatusReporter } from "./commit-status.ts";
 import { runDoctor } from "./doctor.ts";
 import { loadShellEnv, resolveBinaries, type Binaries } from "./env.ts";
 import { ensureLayout, makePaths } from "./paths.ts";
@@ -104,6 +105,7 @@ async function main(): Promise<void> {
     note.show();
   };
 
+  new CommitStatusReporter({ db, store, github, settings }).start(bus);
   const pipeline = new Pipeline({ db, store, github, git, paths, skills, version, env: () => env, claudePath: () => bins.claude, settings });
   // eslint-disable-next-line prefer-const -- assigned after the scheduler, which needs a reference to it
   let poller: Poller;
