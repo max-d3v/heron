@@ -65,7 +65,7 @@ export function RunsTab({ runs, selectedId, onOpen }: { runs: RunSummary[]; sele
                 {r.startedAt && r.finishedAt ? duration(r.finishedAt - r.startedAt) : ""}
               </td>
               <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-fg-2" title={r.usage ? usageBreakdown(r.usage) : undefined}>
-                {r.usage ? compactNumber(r.usage.input + r.usage.output + r.usage.cacheRead + r.usage.cacheWrite) : ""}
+                {r.usage ? compactNumber(r.usage.input + r.usage.output) : ""}
               </td>
               <td className="px-2 py-1.5 text-right">
                 {r.githubReviewUrl && (

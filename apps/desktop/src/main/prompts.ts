@@ -1,8 +1,6 @@
 /** The prompt of the "Default" profile created on first launch. Users edit it in Settings → Profiles. */
 export const DEFAULT_PROMPT = `Review this pull request.
 
-Start with \`.heron/pr.diff\` (and \`.heron/since-last-review.diff\` if it exists) to see what changed, then read the surrounding code as needed to understand it. Check \`.heron/previous-reviews.json\` and \`.heron/pr-comments.json\` so you don't repeat points that were already made or resolved.
-
 Look for, in order of importance:
 
 1. Bugs: wrong logic, unhandled edge cases, race conditions, broken error handling.
