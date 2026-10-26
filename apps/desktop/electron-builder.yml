@@ -14,6 +14,7 @@ extraResources:
     to: .
     filter:
       - "*.png"
+      - "skills/**"
 asarUnpack:
   - node_modules/better-sqlite3/**
 # better-sqlite3 ships N-API prebuilds that load in Electron as-is.

@@ -2,7 +2,7 @@ import { Menu, Notification, app, dialog, ipcMain, powerMonitor, shell, type Bro
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RPCHandler } from "@orpc/server/message-port";
-import { AuthError, DEFAULT_PROFILE, EFFORT_LEVELS, MODEL_ALIASES, type Settings } from "@heron/core";
+import { AuthError, DEFAULT_PROFILE, EFFORT_LEVELS, MODEL_ALIASES, type Settings, type Skill } from "@heron/core";
 import { HeronDb } from "@heron/db";
 import { GitClient } from "@heron/git";
 import { GitHubClient, ghAuthToken } from "@heron/github";
@@ -47,11 +47,22 @@ async function main(): Promise<void> {
   ensureLayout(paths, version);
 
   const db = new HeronDb(paths.db);
+  const skills = new SkillService(db, paths);
+  // mattpocock/skills' code-review comes pre-installed and backs the Default profile.
+  let codeReview: Skill | null = null;
+  if (!db.getSettings().bundledSkillsInstalled) {
+    try {
+      codeReview = await skills.installBundled(join(resourcesDir, "skills", "code-review"));
+      db.setSettings({ bundledSkillsInstalled: true });
+    } catch {
+      // Missing from the build: the Default profile falls back to the plain prompt.
+    }
+  }
   if (db.listProfiles().length === 0) {
     db.saveProfile({
       name: "Default",
       isDefault: true,
-      entry: { type: "prompt", markdown: DEFAULT_PROMPT },
+      entry: codeReview ? { type: "skill", skillId: codeReview.id } : { type: "prompt", markdown: DEFAULT_PROMPT },
       model: "opus",
       effort: "high",
       timeoutMin: DEFAULT_PROFILE.timeoutMin,
@@ -75,7 +86,6 @@ async function main(): Promise<void> {
     env: () => env,
     getToken: () => (bins.gh ? ghAuthToken(bins.gh, env) : Promise.reject(new AuthError("github", "The GitHub CLI (gh) isn't installed"))),
   });
-  const skills = new SkillService(db, paths);
   const settings = () => db.getSettings();
 
   let mainWindow: BrowserWindow | null = null;

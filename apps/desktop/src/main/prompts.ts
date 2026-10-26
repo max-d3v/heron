@@ -1,4 +1,4 @@
-/** The prompt of the "Default" profile created on first launch. Users edit it in Settings → Profiles. */
+/** The "Default" profile's prompt when the bundled code-review skill can't be installed. Users edit it in Settings → Profiles. */
 export const DEFAULT_PROMPT = `Review this pull request.
 
 Look for, in order of importance:

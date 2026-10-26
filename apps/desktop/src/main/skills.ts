@@ -17,7 +17,7 @@ export function readFrontmatter(md: string): { name: string | null; description:
   if (!m) return { name: null, description: null };
   const get = (key: string) => {
     const line = new RegExp(`^${key}:\\s*(.*)$`, "m").exec(m[1]!);
-    return line ? line[1]!.trim().replace(/^["']|["']$/g, "") || null : null;
+    return line ? line[1]!.trim().replace(/^["']|["']$/g, "").replace(/\\"/g, '"') || null : null;
   };
   return { name: get("name"), description: get("description") };
 }
@@ -76,6 +76,12 @@ export class SkillService {
     await rm(dest, { recursive: true, force: true });
     await cp(src, dest, { recursive: true, dereference: true, filter: (p) => !p.endsWith(".DS_Store") && !p.includes("/.git/") });
     return this.db.addSkill({ name, source: "imported", path: dest, contentHash: await hashSkill(dest) });
+  }
+
+  /** Import a skill that ships with Heron, or reuse an imported skill of the same name. */
+  async installBundled(src: string): Promise<Skill> {
+    const name = basename(src);
+    return this.db.listSkills().find((s) => s.source === "imported" && s.name === name) ?? this.importFolder(src);
   }
 
   async listLinkable(): Promise<Array<{ name: string; description: string | null; linked: boolean }>> {
