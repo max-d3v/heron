@@ -253,7 +253,7 @@ export const settings = z.object({
   notifyFailed: z.boolean(),
   allScopeWarningAck: z.boolean(),
   manualPause: z.boolean(),
-  bundledSkillsInstalled: z.boolean(),
+  bundledSkills: z.record(z.string(), z.string()),
 });
 
 export const queueStatus = z.object({

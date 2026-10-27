@@ -2,7 +2,7 @@ import { Menu, Notification, app, dialog, ipcMain, powerMonitor, shell, type Bro
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RPCHandler } from "@orpc/server/message-port";
-import { AuthError, DEFAULT_PROFILE, EFFORT_LEVELS, MODEL_ALIASES, type Settings, type Skill } from "@heron/core";
+import { AuthError, DEFAULT_PROFILE, EFFORT_LEVELS, MODEL_ALIASES, type Settings } from "@heron/core";
 import { HeronDb } from "@heron/db";
 import { GitClient } from "@heron/git";
 import { GitHubClient, ghAuthToken } from "@heron/github";
@@ -48,21 +48,18 @@ async function main(): Promise<void> {
 
   const db = new HeronDb(paths.db);
   const skills = new SkillService(db, paths);
-  // mattpocock/skills' code-review comes pre-installed and backs the Default profile.
-  let codeReview: Skill | null = null;
-  if (!db.getSettings().bundledSkillsInstalled) {
-    try {
-      codeReview = await skills.installBundled(join(resourcesDir, "skills", "code-review"));
-      db.setSettings({ bundledSkillsInstalled: true });
-    } catch {
-      // Missing from the build: the Default profile falls back to the plain prompt.
-    }
+  // The skills that ship with Heron come pre-installed; pr-review backs the Default profile.
+  try {
+    db.setSettings({ bundledSkills: await skills.syncBundled(join(resourcesDir, "skills"), db.getSettings().bundledSkills) });
+  } catch {
+    // Missing from the build: the Default profile falls back to the plain prompt.
   }
   if (db.listProfiles().length === 0) {
+    const prReview = db.listSkills().find((s) => s.source === "imported" && s.name === "pr-review");
     db.saveProfile({
       name: "Default",
       isDefault: true,
-      entry: codeReview ? { type: "skill", skillId: codeReview.id } : { type: "prompt", markdown: DEFAULT_PROMPT },
+      entry: prReview ? { type: "skill", skillId: prReview.id } : { type: "prompt", markdown: DEFAULT_PROMPT },
       model: "opus",
       effort: "high",
       timeoutMin: DEFAULT_PROFILE.timeoutMin,

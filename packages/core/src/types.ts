@@ -265,8 +265,8 @@ export interface Settings {
   allScopeWarningAck: boolean;
   /** Pause from the menu bar survives a restart. */
   manualPause: boolean;
-  /** The skills that ship with Heron were added once; removing one doesn't bring it back. */
-  bundledSkillsInstalled: boolean;
+  /** Each skill that ships with Heron → hash of the version last installed. Removing one doesn't bring it back. */
+  bundledSkills: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -279,7 +279,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyFailed: true,
   allScopeWarningAck: false,
   manualPause: false,
-  bundledSkillsInstalled: false,
+  bundledSkills: {},
 };
 
 export const DEFAULT_PROFILE = {

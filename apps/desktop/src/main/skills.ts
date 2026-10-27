@@ -33,6 +33,12 @@ async function listFiles(dir: string, root = dir): Promise<string[]> {
   return out.sort();
 }
 
+/** Replace `dest` with a copy of the skill folder `src`. */
+async function copySkill(src: string, dest: string): Promise<void> {
+  await rm(dest, { recursive: true, force: true });
+  await cp(src, dest, { recursive: true, dereference: true, filter: (p) => !p.endsWith(".DS_Store") && !p.includes("/.git/") });
+}
+
 /** Content hash of the whole skill folder, recorded in each run's snapshot. */
 export async function hashSkill(dir: string): Promise<string> {
   const h = createHash("sha256");
@@ -73,15 +79,33 @@ export class SkillService {
       throw new Error(`A skill named "${name}" is already imported.`);
     }
     const dest = join(this.paths.pluginSkills, name);
-    await rm(dest, { recursive: true, force: true });
-    await cp(src, dest, { recursive: true, dereference: true, filter: (p) => !p.endsWith(".DS_Store") && !p.includes("/.git/") });
+    await copySkill(src, dest);
     return this.db.addSkill({ name, source: "imported", path: dest, contentHash: await hashSkill(dest) });
   }
 
-  /** Import a skill that ships with Heron, or reuse an imported skill of the same name. */
-  async installBundled(src: string): Promise<Skill> {
-    const name = basename(src);
-    return this.db.listSkills().find((s) => s.source === "imported" && s.name === name) ?? this.importFolder(src);
+  /**
+   * Bring in the skills that ship with Heron, one folder each under `root`. `installed` maps each
+   * to the hash of the version last put in place: a new one is imported once (or reuses an imported
+   * skill of the same name), and a later version replaces the copy only while it's unedited.
+   */
+  async syncBundled(root: string, installed: Record<string, string>): Promise<Record<string, string>> {
+    const out = { ...installed };
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const src = join(root, entry.name);
+      const hash = await hashSkill(src);
+      const last = installed[entry.name];
+      const copy = this.db.listSkills().find((s) => s.source === "imported" && s.name === entry.name);
+      if (last === undefined) {
+        if (!copy) await this.importFolder(src);
+        out[entry.name] = hash;
+      } else if (copy && last !== hash && existsSync(copy.path) && (await hashSkill(copy.path)) === last) {
+        await copySkill(src, copy.path);
+        await this.refreshHash(copy);
+        out[entry.name] = hash;
+      }
+    }
+    return out;
   }
 
   async listLinkable(): Promise<Array<{ name: string; description: string | null; linked: boolean }>> {
