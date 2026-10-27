@@ -1,6 +1,11 @@
 # Heron
 
-A macOS app that reviews GitHub pull requests with your own Claude subscription. See [SPEC.md](SPEC.md) for the design.
+A highly configurable macOS app that reviews GitHub pull requests with your own Claude subscription. See [SPEC.md](SPEC.md) for the design.
+
+Comes with a SKILL that is highly recommended!
+
+<img width="1228" height="789" alt="Screenshot 2026-10-27 at 8 06 07 PM" src="https://github.com/user-attachments/assets/f3fbfeaa-58da-40da-b12d-9c9c507e4a71" />
+
 
 ## Requirements
 
