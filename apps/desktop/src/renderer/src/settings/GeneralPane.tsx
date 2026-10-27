@@ -35,7 +35,7 @@ export function GeneralPane() {
         <NumberInput value={s.pollIntervalSec} min={10} max={3600} suffix="seconds" onCommit={(v) => set({ pollIntervalSec: v })} />
       </Field>
       <Field label="Wait after a push" hint="Another push in this window restarts it, so a burst of commits gets one review.">
-        <NumberInput value={s.debounceMin} min={0} max={120} suffix="minutes" onCommit={(v) => set({ debounceMin: v })} />
+        <NumberInput value={s.debounceSec} min={0} max={7200} suffix="seconds" onCommit={(v) => set({ debounceSec: v })} />
       </Field>
       <Field label="Dry run" hint="Run reviews but don't post them to GitHub. Results show in the app only.">
         <Switch checked={s.dryRun} onChange={(v) => set({ dryRun: v })} label="Dry run" />

@@ -123,7 +123,7 @@ The prompt page shows a **read-only "Output contract" box** under the editor. It
 - Each run stores the skill's content hash in its snapshot.
 
 ### General settings
-Parallel runs (default 2), poll interval (default 10s), debounce (default 5 min), dry run (default off), launch at login (default off), notifications on posted/failed, clear worktree cache (shows disk usage).
+Parallel runs (default 2), poll interval (default 10s), debounce (default 5s), dry run (default off), launch at login (default off), notifications on posted/failed, clear worktree cache (shows disk usage).
 
 ---
 

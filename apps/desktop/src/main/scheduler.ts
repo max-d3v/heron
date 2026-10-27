@@ -253,19 +253,19 @@ export class Scheduler {
     const { db, store } = this.d;
     const reviews = db.listReviewsForPr(pr.id);
     const pending = reviews.find((r) => r.headSha === pr.headSha && (r.state === "debouncing" || r.state === "queued"));
-    const runAfter = Date.now() + this.d.settings().debounceMin * 60_000;
+    const runAfter = Date.now() + this.d.settings().debounceSec * 1000;
     if (pending) {
       if (pending.state === "debouncing") db.updateReview(pending.id, { runAfter }, ["debouncing"]);
       return;
     }
     if (hasReviewForSha(reviews, pr.headSha)) return;
     const review = db.createReview({ prId: pr.id, headSha: pr.headSha, state: "debouncing", trigger, runAfter });
-    const mins = this.d.settings().debounceMin;
+    const secs = this.d.settings().debounceSec;
     store.activity({
       prId: pr.id,
       reviewId: review.id,
       kind: "review.created",
-      message: mins > 0 ? `Review of ${short(pr.headSha)} scheduled in ${mins} min` : `Review of ${short(pr.headSha)} scheduled`,
+      message: secs > 0 ? `Review of ${short(pr.headSha)} scheduled in ${formatDelay(secs * 1000)}` : `Review of ${short(pr.headSha)} scheduled`,
     });
   }
 

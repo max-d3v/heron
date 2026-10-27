@@ -256,7 +256,7 @@ export interface QueueStatus {
 export interface Settings {
   parallelRuns: number;
   pollIntervalSec: number;
-  debounceMin: number;
+  debounceSec: number;
   dryRun: boolean;
   launchAtLogin: boolean;
   notifyPosted: boolean;
@@ -272,7 +272,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   parallelRuns: 2,
   pollIntervalSec: 10,
-  debounceMin: 5,
+  debounceSec: 5,
   dryRun: false,
   launchAtLogin: false,
   notifyPosted: true,
