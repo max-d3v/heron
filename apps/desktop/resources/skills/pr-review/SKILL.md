@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: "Review a code change (pull request, branch or diff) for bugs, questionable decisions and code smells. Summarizes issue counts plus the worst issue, and leaves one short comment on the lines each problem concerns."
+description: "Review a code change (pull request, branch or diff) for bugs, questionable decisions and code smells. Summarizes issue counts, and leaves one short comment on the lines each problem concerns."
 ---
 
 Review the change for three kinds of problems: **bugs**, **decisions** and **smells**. Report only what fits one of them.
@@ -41,9 +41,9 @@ Simplicity wins: never ask for an abstraction the change doesn't need yet. The r
 
 ## Writing it up
 
-**Summary**: the issue counts and the worst issue across all categories, nothing else:
+**Summary**: the issue counts per category, nothing else:
 
-> 2 bugs, 1 decision, 3 smells. Worst: `src/cache.ts:42`, the cache never expires, so a logged-out user's token keeps working.
+> 2 bugs, 1 decision, 3 smells.
 
 When nothing survives: `No issues found.`
 
