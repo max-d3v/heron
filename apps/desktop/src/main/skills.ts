@@ -52,7 +52,7 @@ export async function hashSkill(dir: string): Promise<string> {
 }
 
 /** The slash command a profile sends: /heron:<name> for imported skills, /<name> for linked ones. */
-export function skillCommand(s: Pick<Skill, "name" | "source">): string {
+export function skillCommand(s: Skill): string {
   return s.source === "imported" ? `heron:${s.name}` : s.name;
 }
 

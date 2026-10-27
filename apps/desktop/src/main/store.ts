@@ -65,7 +65,7 @@ export class Store {
     return row;
   }
 
-  step(review: Pick<Review, "id" | "prId">, step: AgentStep): void {
+  step(review: Review, step: AgentStep): void {
     const entry = this.db.appendActivity({
       prId: review.prId,
       reviewId: review.id,

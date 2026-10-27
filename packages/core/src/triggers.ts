@@ -1,4 +1,4 @@
-import type { Pr, Repo, Review } from "./types.ts";
+import type { Pr, Repo, RepoScope, Review } from "./types.ts";
 
 /** A PR as seen in GitHub's open-PR list. */
 export interface ObservedPr {
@@ -71,12 +71,12 @@ export function diffPrs(known: Pr[], observed: ObservedPr[]): PrChange[] {
 }
 
 export function isInScope(
-  repo: Pick<Repo, "scope">,
-  pr: Pick<Pr, "author" | "number">,
+  scope: RepoScope,
+  pr: Pr,
   viewerLogin: string | null,
   manualPrs: ReadonlySet<number>,
 ): boolean {
-  switch (repo.scope) {
+  switch (scope) {
     case "all":
       return true;
     case "mine":
@@ -87,33 +87,24 @@ export function isInScope(
 }
 
 /** Drafts are skipped unless the repo allows them; a hand-picked draft is always reviewed. */
-export function isDraftAllowed(
-  repo: Pick<Repo, "scope" | "includeDrafts">,
-  pr: Pick<Pr, "isDraft" | "number">,
-  manualPrs: ReadonlySet<number>,
-): boolean {
+export function isDraftAllowed(repo: Repo, pr: Pr, manualPrs: ReadonlySet<number>): boolean {
   if (!pr.isDraft) return true;
   if (repo.includeDrafts) return true;
   return repo.scope === "manual" && manualPrs.has(pr.number);
 }
 
 /** Should this PR be reviewed automatically at all (ignoring which SHAs were reviewed)? */
-export function isEligible(
-  repo: Pick<Repo, "scope" | "includeDrafts" | "enabled">,
-  pr: Pick<Pr, "author" | "number" | "isDraft" | "state">,
-  viewerLogin: string | null,
-  manualPrs: ReadonlySet<number>,
-): boolean {
+export function isEligible(repo: Repo, pr: Pr, viewerLogin: string | null, manualPrs: ReadonlySet<number>): boolean {
   return (
     repo.enabled &&
     pr.state === "open" &&
-    isInScope(repo, pr, viewerLogin, manualPrs) &&
+    isInScope(repo.scope, pr, viewerLogin, manualPrs) &&
     isDraftAllowed(repo, pr, manualPrs)
   );
 }
 
 /** A SHA counts as reviewed once any run for it got past being superseded or cancelled. */
-export function hasReviewForSha(reviews: Pick<Review, "headSha" | "state">[], sha: string): boolean {
+export function hasReviewForSha(reviews: Review[], sha: string): boolean {
   return reviews.some((r) => r.headSha === sha && r.state !== "superseded" && r.state !== "cancelled");
 }
 

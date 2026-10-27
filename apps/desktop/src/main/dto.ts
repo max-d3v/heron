@@ -50,7 +50,7 @@ export function listPrItems(db: HeronDb, viewerLogin: string | null): PrListItem
   for (const row of db.listPrRows()) {
     if (row.pr.state !== "open" && (row.reviewCount === 0 || row.pr.lastActivityAt < cutoff)) continue;
     const r = repos.get(row.pr.repoId);
-    const inScope = r ? isInScope(r.repo, row.pr, viewerLogin, r.manual) : false;
+    const inScope = r ? isInScope(r.repo.scope, row.pr, viewerLogin, r.manual) : false;
     out.push(toPrListItem(row, inScope));
   }
   return out;
