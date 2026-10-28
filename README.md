@@ -3,7 +3,13 @@
 A highly configurable macOS app that reviews GitHub pull requests with your own Claude subscription.
 
 <!-- TODO: demo video. Drag the .mp4 into this file on github.com to get an embed link, then paste it here. -->
-> 🎬 Demo video coming soon.
+
+
+https://github.com/user-attachments/assets/6c38713a-68e7-4abe-ae0a-b169fc9feacf
+
+
+
+
 
 ## How it works
 
