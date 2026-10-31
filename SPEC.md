@@ -125,7 +125,7 @@ The prompt page shows a **read-only "Output contract" box** under the editor. It
 - Each run stores the skill's content hash in its snapshot.
 
 ### General settings
-Parallel runs (default 2), poll interval (default 10s), debounce (default 5s), iteration debounce (default 30s), iteration loop cap (default 3), dry run (default off), launch at login (default off), notifications on posted/failed, clear worktree cache (shows disk usage).
+Parallel runs (default 2), poll interval (default 10s), debounce (default 5s), iteration debounce (default 30s), iteration loop cap (default 6), dry run (default off), launch at login (default off), notifications on posted/failed, clear worktree cache (shows disk usage).
 
 ---
 
@@ -366,7 +366,7 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
 | `localCheckoutPath` | The checkout. It must be a clone of the repo (a remote points at `github.com/<owner>/<name>`), checked when it's saved or switched on. Kept while the switch is off. |
 
 - **Profiles** gain `kind: "review" | "iteration"`, with one default per kind. Iteration profiles have **no entry** (no prompt or skill), only `model`, `effort`, `timeoutMin` (default 30) and `maxTurns` (default 150). Their page shows the fixed prompt and the output contract read-only.
-- **General:** iteration debounce (default 30s), loop cap (default 3).
+- **General:** iteration debounce (default 30s), loop cap (default 6).
 - **Dry run:** no pushes and no replies; **Push** is disabled.
 
 ### 15.3 Feedback

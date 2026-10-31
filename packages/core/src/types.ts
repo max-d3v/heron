@@ -476,7 +476,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pollIntervalSec: 10,
   debounceSec: 5,
   iterationDebounceSec: 30,
-  loopCap: 3,
+  loopCap: 6,
   dryRun: false,
   launchAtLogin: false,
   notifyPosted: true,
