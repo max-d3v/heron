@@ -346,8 +346,18 @@ export class IterationPipeline {
     // Not the checkout the agent ran in any more: `checkLocalCheckout` says why.
     if (!existsSync(dir) || (await git.currentBranch(dir).catch(() => null)) !== branch) return;
     // HEAD moved: the user may have committed or pulled during a long pause, and commits can't be told
-    // apart from any the agent made. Nothing is touched; `checkLocalCheckout` asks the user to sort it out.
-    if ((await git.headSha(dir).catch(() => null)) !== headSha) return;
+    // apart from any the agent made. Nothing is touched; the user is asked to sort it out.
+    const head = await git.headSha(dir).catch(() => null);
+    if (head !== headSha) {
+      // Commits on top of the head may be the agent's (it's told not to commit, but sometimes does):
+      // `checkLocalCheckout`'s "Pull (or push)" would get them pushed to the PR.
+      if (head && (await git.isAncestor(dir, headSha, head).catch(() => false))) {
+        throw new PermanentError(
+          `The local checkout has commits on top of the PR head ${short(headSha)}. They may be the agent's from the last attempt. Check them, and \`git reset --soft ${short(headSha)}\` if they are, then Re-run.`,
+        );
+      }
+      return;
+    }
     try {
       if (!(await git.status(dir)).trim()) return;
       await git.stash(dir, `Heron iteration ${it.id}: the agent's edits from an unfinished attempt`);
