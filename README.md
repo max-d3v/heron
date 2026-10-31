@@ -1,6 +1,6 @@
 # Heron
 
-A highly configurable macOS app that reviews GitHub pull requests with your own Claude subscription. Now with [iterations](#iterations-review-fix-repeat): Heron reviews, Claude fixes, repeat.
+Run automatic code reviews on your GitHub pull requests using your Claude Code subscription. A highly configurable macOS app, now with [iterations](#iterations-review-fix-repeat): Heron reviews, Claude fixes, repeat.
 
 <!-- TODO: demo video. Drag the .mp4 into this file on github.com to get an embed link, then paste it here. -->
 
