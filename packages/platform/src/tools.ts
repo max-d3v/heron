@@ -5,10 +5,11 @@ import { envKey, splitPath } from "./env.ts";
 import { windows } from "./os.ts";
 
 /**
- * git when it isn't on PATH: macOS's `/usr/bin/git` (the Command Line Tools shim). Windows has
- * nothing to fall back on; a missing git fails the Doctor, so the queue never runs it (§17.3).
+ * git when it isn't on PATH: macOS's `/usr/bin/git` (the Command Line Tools shim). Windows has none:
+ * a missing git fails the Doctor (§17.3). (A bare `git.exe` would be looked for in the working
+ * directory first, which can be a checkout.)
  */
-export const FALLBACK_GIT = windows ? "git.exe" : "/usr/bin/git";
+export const FALLBACK_GIT: string | null = windows ? null : "/usr/bin/git";
 
 function isExecutable(p: string): boolean {
   try {

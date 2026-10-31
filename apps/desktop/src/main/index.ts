@@ -2,7 +2,7 @@ import { Notification, app, dialog, ipcMain, powerMonitor, shell, type BrowserWi
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RPCHandler } from "@orpc/server/message-port";
-import { AuthError, DEFAULT_PROFILE, EFFORT_LEVELS, MODEL_ALIASES, type QueueStatus, type Settings } from "@heron/core";
+import { AuthError, DEFAULT_PROFILE, EFFORT_LEVELS, MODEL_ALIASES, PermanentError, type QueueStatus, type Settings } from "@heron/core";
 import { HeronDb } from "@heron/db";
 import { GitClient } from "@heron/git";
 import { GitHubClient, ghAuthToken } from "@heron/github";
@@ -85,7 +85,11 @@ async function main(): Promise<void> {
     userAgent: `heron/${version}`,
   });
   const git = new GitClient({
-    gitPath: () => bins.git ?? FALLBACK_GIT,
+    gitPath: () => {
+      const path = bins.git ?? FALLBACK_GIT;
+      if (!path) throw new PermanentError("git isn't installed (see Settings → General → Setup)");
+      return path;
+    },
     env: () => env,
     getToken: () => (bins.gh ? ghAuthToken(bins.gh, env) : Promise.reject(new AuthError("github", "The GitHub CLI (gh) isn't installed"))),
   });
