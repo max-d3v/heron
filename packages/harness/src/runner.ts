@@ -19,12 +19,17 @@ import {
   OutputParseError,
   PermanentError,
   TransientError,
+  iterationJsonSchema,
+  parseTriageOutput,
   reviewJsonSchema,
+  triageJsonSchema,
   type AgentStep,
   type EffortLevel,
   type TokenUsage,
+  type TriageOutput,
 } from "@heron/core";
 import { stripEnv } from "./env.ts";
+import { TRIAGE_SYSTEM_PROMPT, buildIterationSystemPromptAppend, buildTriagePrompt, type IterationWorkspace, type TriageItem } from "./iteration-prompt.ts";
 import { buildSystemPromptAppend, type HeronFiles, type PrContext } from "./prompt.ts";
 import { messageToSteps } from "./steps.ts";
 
@@ -33,29 +38,52 @@ export type HarnessEntry =
   /** `command` is what follows the slash: `heron:<name>` for imported skills, `<name>` for linked ones. */
   | { type: "skill"; command: string; skillFile: string };
 
-export interface RunReviewOptions {
+/** What every run shares: where Claude Code runs and how the caller follows it. */
+interface RunBase {
   claudePath: string;
   cwd: string;
   baseEnv: NodeJS.ProcessEnv;
   ghConfigDir: string;
+  timeoutMs: number;
+  /** Aborted by the caller on supersede, cancel or quit; its `reason` is passed through. */
+  signal: AbortSignal;
+  /** JSONL file the raw stream is appended to. */
+  transcriptPath: string;
+  clientApp: string;
+  onStep?: (step: AgentStep) => void;
+  onSpawn?: (pid: number) => void;
+  onInit?: (info: { sessionId: string; model: string }) => void;
+  /** Called once the run reports its totals, failed runs included. */
+  onUsage?: (usage: TokenUsage) => void;
+}
+
+export interface RunReviewOptions extends RunBase {
   pluginDir: string;
   trustRepoClaudeConfig: boolean;
   entry: HarnessEntry;
   model: string;
   effort: EffortLevel | null;
   maxTurns: number;
-  timeoutMs: number;
-  /** Aborted by the caller on supersede, cancel or quit; its `reason` is passed through. */
-  signal: AbortSignal;
   pr: PrContext;
   files: HeronFiles;
-  transcriptPath: string;
-  clientApp: string;
-  onStep: (step: AgentStep) => void;
-  onSpawn: (pid: number) => void;
-  onInit: (info: { sessionId: string; model: string }) => void;
-  /** Called once the run reports its totals, failed runs included. */
-  onUsage: (usage: TokenUsage) => void;
+}
+
+interface AgentRunOptions extends RunBase {
+  /** Names the run in the transcript ("review", "triage", "iteration"). */
+  label: string;
+  prompt: string;
+  systemPrompt: NonNullable<Options["systemPrompt"]>;
+  outputSchema: Record<string, unknown>;
+  model: string;
+  effort: EffortLevel | null;
+  maxTurns: number;
+  settingSources: NonNullable<Options["settingSources"]>;
+  pluginDir?: string;
+  /** Built-in tools; Claude Code's defaults when left out. */
+  tools?: string[];
+  additionalDirectories?: string[];
+  /** A skill run's command: fail when Claude Code doesn't know it. */
+  skillCommand?: string;
 }
 
 export interface RunReviewResult {
@@ -130,11 +158,72 @@ export async function runReview(o: RunReviewOptions): Promise<RunReviewResult> {
   if (o.entry.type === "skill" && !existsSync(o.entry.skillFile)) {
     throw new PermanentError(`Skill file not found: ${o.entry.skillFile}`);
   }
+  return runAgent({
+    ...o,
+    label: "review",
+    prompt: o.entry.type === "prompt" ? o.entry.markdown : `/${o.entry.command}`,
+    systemPrompt: { type: "preset", preset: "claude_code", append: buildSystemPromptAppend(o.pr, o.files) },
+    outputSchema: reviewJsonSchema(),
+    settingSources: o.trustRepoClaudeConfig ? ["user", "project"] : ["user"],
+    ...(o.entry.type === "skill" ? { skillCommand: o.entry.command } : {}),
+  });
+}
 
+export interface RunIterationOptions extends RunBase {
+  pluginDir: string;
+  trustRepoClaudeConfig: boolean;
+  model: string;
+  effort: EffortLevel | null;
+  maxTurns: number;
+  /** The user message: the feedback as numbered items (`iterationPrompt`). */
+  prompt: string;
+  pr: PrContext;
+  workspace: IterationWorkspace;
+}
+
+/** Run the agent that addresses an iteration's feedback in `cwd` (§15.5). */
+export async function runIteration(o: RunIterationOptions): Promise<RunReviewResult> {
+  return runAgent({
+    ...o,
+    label: "iteration",
+    systemPrompt: { type: "preset", preset: "claude_code", append: buildIterationSystemPromptAppend(o.pr, o.workspace) },
+    outputSchema: iterationJsonSchema(),
+    settingSources: o.trustRepoClaudeConfig ? ["user", "project"] : ["user"],
+    additionalDirectories: [o.workspace.contextDir],
+  });
+}
+
+export interface RunTriageOptions extends Omit<RunBase, "timeoutMs"> {
+  prTitle: string;
+  items: TriageItem[];
+}
+
+/** One Haiku call, no tools, one turn: which items ask for a change (§15.4). */
+export async function runTriage(o: RunTriageOptions): Promise<TriageOutput> {
+  const result = await runAgent({
+    ...o,
+    label: "triage",
+    prompt: buildTriagePrompt(o.prTitle, o.items),
+    systemPrompt: TRIAGE_SYSTEM_PROMPT,
+    outputSchema: triageJsonSchema(),
+    model: "haiku",
+    effort: "low",
+    maxTurns: 1,
+    tools: [],
+    settingSources: [],
+    timeoutMs: 5 * 60_000,
+  });
+  const parsed = parseTriageOutput(result.structuredOutput);
+  if (!parsed.ok) throw new OutputParseError(`Triage output doesn't match its format: ${parsed.error}`, JSON.stringify(result.structuredOutput));
+  return parsed.output;
+}
+
+/** Run Claude Code once with the Agent SDK and return its structured output. */
+async function runAgent(o: AgentRunOptions): Promise<RunReviewResult> {
   await mkdir(dirname(o.transcriptPath), { recursive: true });
   const transcript = createWriteStream(o.transcriptPath, { flags: "a" });
   const log = (entry: unknown) => transcript.write(`${JSON.stringify(entry)}\n`);
-  log({ type: "heron", event: "start", ts: Date.now(), model: o.model, effort: o.effort, cwd: o.cwd });
+  log({ type: "heron", event: "start", run: o.label, ts: Date.now(), model: o.model, effort: o.effort, cwd: o.cwd });
 
   const ac = new AbortController();
   const onCallerAbort = () => ac.abort(o.signal.reason ?? "aborted");
@@ -148,9 +237,8 @@ export async function runReview(o: RunReviewOptions): Promise<RunReviewResult> {
   let model: string | null = null;
   let result: SDKResultMessage | null = null;
   let assistantError: string | null = null;
-  let skillChecked = o.entry.type !== "skill";
+  let skillChecked = o.skillCommand === undefined;
 
-  const prompt = o.entry.type === "prompt" ? o.entry.markdown : `/${o.entry.command}`;
   const options: Options = {
     cwd: o.cwd,
     pathToClaudeCodeExecutable: o.claudePath,
@@ -160,13 +248,15 @@ export async function runReview(o: RunReviewOptions): Promise<RunReviewResult> {
     abortController: ac,
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
-    settingSources: o.trustRepoClaudeConfig ? ["user", "project"] : ["user"],
-    plugins: [{ type: "local", path: o.pluginDir }],
-    systemPrompt: { type: "preset", preset: "claude_code", append: buildSystemPromptAppend(o.pr, o.files) },
-    outputFormat: { type: "json_schema", schema: reviewJsonSchema() },
+    settingSources: o.settingSources,
+    ...(o.pluginDir ? { plugins: [{ type: "local", path: o.pluginDir }] } : {}),
+    ...(o.tools ? { tools: o.tools } : {}),
+    ...(o.additionalDirectories ? { additionalDirectories: o.additionalDirectories } : {}),
+    systemPrompt: o.systemPrompt,
+    outputFormat: { type: "json_schema", schema: o.outputSchema },
     env: stripEnv(o.baseEnv, o.ghConfigDir, o.clientApp),
     persistSession: false,
-    spawnClaudeCodeProcess: makeSpawner(o.onSpawn, (text) => {
+    spawnClaudeCodeProcess: makeSpawner(o.onSpawn ?? (() => undefined), (text) => {
       stderrTail = (stderrTail + text).slice(-4000);
       log({ type: "stderr", text });
     }),
@@ -174,22 +264,22 @@ export async function runReview(o: RunReviewOptions): Promise<RunReviewResult> {
 
   const step = (s: AgentStep) => {
     try {
-      o.onStep(s);
+      o.onStep?.(s);
     } catch {
       // the UI side must never break a run
     }
   };
 
   try {
-    const q = query({ prompt, options });
+    const q = query({ prompt: o.prompt, options });
     for await (const msg of q as AsyncIterable<SDKMessage>) {
       log(msg);
       if (msg.type === "system" && msg.subtype === "init") {
         sessionId = msg.session_id;
         model = msg.model;
-        o.onInit({ sessionId: msg.session_id, model: msg.model });
-        if (o.entry.type === "skill") {
-          const command = o.entry.command;
+        o.onInit?.({ sessionId: msg.session_id, model: msg.model });
+        if (o.skillCommand !== undefined) {
+          const command = o.skillCommand;
           // An unknown /name doesn't fail in the SDK, it just becomes a plain prompt.
           if (!msg.slash_commands.includes(command) && !msg.skills.includes(command)) {
             throw new PermanentError(`Skill /${command} isn't available to Claude Code (check the skill's name and SKILL.md).`);
@@ -205,7 +295,7 @@ export async function runReview(o: RunReviewOptions): Promise<RunReviewResult> {
         result = msg;
         const models = Object.values(msg.modelUsage);
         if (models.length > 0) {
-          o.onUsage({
+          o.onUsage?.({
             input: models.reduce((n, m) => n + m.inputTokens, 0),
             output: models.reduce((n, m) => n + m.outputTokens, 0),
             cacheRead: models.reduce((n, m) => n + m.cacheReadInputTokens, 0),
@@ -260,7 +350,7 @@ export async function runReview(o: RunReviewOptions): Promise<RunReviewResult> {
     case "error_max_turns":
       throw new PermanentError(`Hit the turn limit (${o.maxTurns}) before finishing`);
     case "error_max_structured_output_retries":
-      throw new OutputParseError("Claude couldn't produce output matching the review schema", "");
+      throw new OutputParseError(`Claude couldn't produce output matching the ${o.label} schema`, "");
     case "success": {
       const text = r.result ?? "";
       if (r.api_error_status === 429 || /usage limit|rate limit/i.test(text)) {

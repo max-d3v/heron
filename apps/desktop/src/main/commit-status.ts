@@ -1,4 +1,4 @@
-import { errorMessage, isInFlight, type Activity, type Pr, type Review, type ReviewState, type Settings } from "@heron/core";
+import { errorMessage, isInFlight, type Activity, type Pr, type Review, type ReviewState } from "@heron/core";
 import type { HeronDb } from "@heron/db";
 import { REVIEW_STATUS_CONTEXT, type GitHubClient, type ReviewStatus } from "@heron/github";
 import type { Bus } from "./bus.ts";
@@ -8,13 +8,13 @@ export interface CommitStatusDeps {
   db: HeronDb;
   store: Store;
   github: GitHubClient;
-  settings: () => Settings;
 }
 
 /**
  * Mirrors each review onto its head commit as the `heron/review` status, so it shows in
- * the PR's checks box: pending while it runs, success once posted (linking the review),
- * error if it fails or is cancelled. Dry runs post nothing to GitHub, so they set nothing.
+ * the PR's checks box: pending while it runs, success once posted (linking the review) or
+ * when it found nothing to post, error if it fails or is cancelled. Dry runs post nothing
+ * to GitHub, so they set nothing.
  */
 export class CommitStatusReporter {
   // One at a time, so a slow "pending" can't land after the "success" that follows it.
@@ -37,8 +37,8 @@ export class CommitStatusReporter {
     const pr = review ? this.d.db.getPr(review.prId) : null;
     const repo = pr ? this.d.db.getRepo(pr.repoId) : null;
     if (!review || !pr || !repo) return;
-    // The snapshot is taken just after the first step starts, from these same settings.
-    if (review.profileSnapshot?.dryRun ?? this.d.settings().dryRun) return;
+    // The snapshot is taken just after the first step starts, from this same repo setting.
+    if (review.profileSnapshot?.dryRun ?? repo.dryRun) return;
 
     const status = statusFor(review, pr, from, to);
     if (!status) return;
@@ -61,6 +61,8 @@ function statusFor(review: Review, pr: Pr, from: ReviewState, to: ReviewState): 
   // Leaving the queue, on the first attempt or a retry.
   if (from === "queued" && isInFlight(to)) return { state: "pending", description: "Reviewing…" };
   if (to === "posted") return { state: "success", description: "Review posted", targetUrl: review.githubReviewUrl ?? undefined };
+  // Not a dry run (those set nothing), so the review found nothing to raise.
+  if (to === "completed") return { state: "success", description: "No issues found" };
   // Only a review that started has a pending status to replace. Superseded ones are on a
   // commit that is no longer the PR head, and closed PRs don't show their checks.
   if (review.startedAt === null) return null;

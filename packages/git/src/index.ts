@@ -197,6 +197,97 @@ export class GitClient {
     return (await this.run(["diff", "--no-color", "--no-ext-diff", "-M", from, to], { cwd: cloneDir, auth: true })).stdout;
   }
 
+  /** The branch checked out in `dir`, or null when HEAD is detached. */
+  async currentBranch(dir: string): Promise<string | null> {
+    const { stdout, code } = await this.run(["symbolic-ref", "--short", "-q", "HEAD"], { cwd: dir, okCodes: [1] });
+    return code === 0 ? stdout.trim() || null : null;
+  }
+
+  /** Every remote URL of the repository at `dir` (fetch and push). */
+  async remoteUrls(dir: string): Promise<string[]> {
+    const { stdout } = await this.run(["remote", "-v"], { cwd: dir });
+    return [...new Set(stdout.split("\n").map((l) => l.split(/\s+/)[1]).filter((u): u is string => !!u))];
+  }
+
+  /** `git status --porcelain`: empty when nothing is modified, staged or untracked. */
+  async status(dir: string): Promise<string> {
+    return (await this.run(["status", "--porcelain"], { cwd: dir })).stdout;
+  }
+
+  /**
+   * Commit everything in the checkout as one commit on top of `base`; commits the agent made
+   * anyway are folded in by a soft reset first. Returns the commit, or null when nothing changed.
+   * The commit uses the user's git identity; hooks and signing are off, since nobody is there to answer them.
+   */
+  async commitAll(dir: string, base: string, message: { title: string; body: string; trailer: string }): Promise<string | null> {
+    if ((await this.headSha(dir)) !== base) await this.resetSoft(dir, base);
+    await this.run(["add", "-A"], { cwd: dir });
+    const { code } = await this.run(["diff", "--cached", "--quiet"], { cwd: dir, okCodes: [1] });
+    if (code === 0) return null;
+    const paragraphs = [message.title, message.body, message.trailer].filter((p) => p.trim()).flatMap((p) => ["-m", p]);
+    await this.run(["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-q", ...paragraphs], { cwd: dir });
+    return this.headSha(dir);
+  }
+
+  /** HEAD, when it is a commit right on top of `base` whose message carries `trailer` (a commit made before a crash). */
+  async headCommitWithTrailer(dir: string, base: string, trailer: string): Promise<string | null> {
+    const sha = await this.headSha(dir);
+    if (!sha || sha === base) return null;
+    const { stdout } = await this.run(["log", "-1", "--format=%P%n%B", sha], { cwd: dir });
+    const [parents, ...body] = stdout.split("\n");
+    return parents?.trim() === base && body.join("\n").includes(trailer) ? sha : null;
+  }
+
+  async updateRef(cloneDir: string, ref: string, sha: string): Promise<void> {
+    await this.run(["update-ref", ref, sha], { cwd: cloneDir });
+  }
+
+  /** Copy `srcRef` of another local repository (the user's checkout) into the clone as `ref`. */
+  async fetchFromPath(cloneDir: string, path: string, srcRef: string, ref: string): Promise<void> {
+    await this.run(["fetch", "--no-tags", "--force", path, `+${srcRef}:${ref}`], { cwd: cloneDir });
+  }
+
+  /**
+   * Fast-forward `branch` on GitHub to `sha`, never forced. When the branch moved on, the push
+   * comes back `rejected`; a protected branch or a missing permission comes back `forbidden`.
+   */
+  async push(
+    cloneDir: string,
+    owner: string,
+    name: string,
+    sha: string,
+    branch: string,
+  ): Promise<{ ok: true } | { ok: false; reason: "rejected" | "forbidden"; message: string }> {
+    try {
+      await this.run(["push", `https://github.com/${owner}/${name}.git`, `${sha}:refs/heads/${branch}`], { cwd: cloneDir, auth: true });
+      return { ok: true };
+    } catch (err) {
+      const cause = err instanceof GitError ? err : err instanceof Error ? err.cause : undefined;
+      const stderr = cause instanceof GitError ? cause.stderr : "";
+      const message = stderr.trim().split("\n").slice(-4).join("\n") || (err instanceof Error ? err.message : String(err));
+      if (/\[rejected\]|non-fast-forward|fetch first|stale info/i.test(stderr)) return { ok: false, reason: "rejected", message };
+      if (/GH006|GH013|protected branch|\[remote rejected\]|Permission to .* denied|returned error: 403/i.test(stderr)) {
+        return { ok: false, reason: "forbidden", message };
+      }
+      throw err;
+    }
+  }
+
+  /** Put every uncommitted change, untracked files included, in a new stash; the checkout is then clean. */
+  async stash(dir: string, message: string): Promise<void> {
+    await this.run(["stash", "push", "--include-untracked", "-m", message], { cwd: dir });
+  }
+
+  /** Move the checked-out branch back to `sha`; `--keep` refuses rather than lose local edits. */
+  async resetKeep(dir: string, sha: string): Promise<void> {
+    await this.run(["reset", "--keep", sha], { cwd: dir });
+  }
+
+  /** Move the checked-out branch back to `sha`, leaving the changes since staged (index and files untouched). */
+  async resetSoft(dir: string, sha: string): Promise<void> {
+    await this.run(["reset", "--soft", sha], { cwd: dir });
+  }
+
   /** Keep a path out of `git status` in every worktree of the clone. */
   async addExclude(cloneDir: string, pattern: string): Promise<void> {
     const file = join(cloneDir, "info", "exclude");

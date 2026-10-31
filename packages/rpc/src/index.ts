@@ -3,11 +3,19 @@ import { z } from "zod";
 import {
   ACTIVITY_KINDS,
   AGENT_STEP_KINDS,
+  CWD_KINDS,
   EFFORT_LEVELS,
+  FEEDBACK_KINDS,
+  ITEM_STATUSES,
+  ITERATION_COMMENTS,
+  ITERATION_STATES,
+  ITERATION_TRIGGERS,
+  PROFILE_KINDS,
   PR_STATES,
   REPO_SCOPES,
   REVIEW_STATES,
   REVIEW_TRIGGERS,
+  TRIAGE_VERDICTS,
 } from "@heron/core";
 
 // ── shared shapes ────────────────────────────────────────────────────────────
@@ -31,6 +39,10 @@ export const PR_STATUSES = [
 ] as const;
 export const prStatus = z.enum(PR_STATUSES);
 
+/** The sidebar's second badge: what the PR's iterations need or are doing. */
+export const ITERATION_BADGES = ["waiting", "running", "ready", "failed"] as const;
+export const iterationBadge = z.enum(ITERATION_BADGES);
+
 export const prListItem = z.object({
   id,
   repoId: id,
@@ -43,13 +55,22 @@ export const prListItem = z.object({
   state: z.enum(PR_STATES),
   url: z.string(),
   headSha: z.string(),
+  /** The repo's review scope covers it (manual covers every PR). */
   inScope: z.boolean(),
+  /** Reviews are turned on for the PR's repo. */
+  reviewsOn: z.boolean(),
+  /** A push starts a review on its own (reviews on, in scope, not manual, drafts allowed). */
+  autoReview: z.boolean(),
+  /** Reviews or iterations are on for the PR's repo. */
   repoEnabled: z.boolean(),
   status: prStatus,
   /** True when the latest run is for an older SHA than the current head. */
   headUnreviewed: z.boolean(),
   latestReviewId: id.nullable(),
   latestError: z.string().nullable(),
+  /** Iterations run on it: iterations are on for its repo, and it's an open PR you opened from a branch in the same repo. */
+  iterationEligible: z.boolean(),
+  iteration: iterationBadge.nullable(),
   lastActivityAt: z.number(),
 });
 
@@ -103,6 +124,98 @@ export const reviewDetail = runSummary.extend({
     .nullable(),
 });
 
+const usage = z.object({ input: z.number(), output: z.number(), cacheRead: z.number(), cacheWrite: z.number() });
+
+export const iterationSummary = z.object({
+  id,
+  prId: id,
+  state: z.enum(ITERATION_STATES),
+  trigger: z.enum(ITERATION_TRIGGERS),
+  headSha: z.string().nullable(),
+  commitSha: z.string().nullable(),
+  commitTitle: z.string().nullable(),
+  profileName: z.string().nullable(),
+  model: z.string().nullable(),
+  effort: effort.nullable(),
+  cwdKind: z.enum(CWD_KINDS).nullable(),
+  attempt: z.number(),
+  runAfter: z.number().nullable(),
+  lastError: z.string().nullable(),
+  triageTotal: z.number(),
+  triageChange: z.number(),
+  /** Items the agent addressed, out of `itemCount` (once it has reported). */
+  addressed: z.number().nullable(),
+  itemCount: z.number().nullable(),
+  startedAt: z.number().nullable(),
+  finishedAt: z.number().nullable(),
+  createdAt: z.number(),
+  usage: usage.nullable(),
+});
+
+const threadComment = z.object({ author: z.string(), body: z.string(), createdAt: z.number(), heron: z.boolean() });
+
+export const iterationDetail = iterationSummary.extend({
+  sessionId: z.string().nullable(),
+  transcriptPath: z.string().nullable(),
+  rawOutput: z.string().nullable(),
+  /** Set once the commit is on GitHub. */
+  commitUrl: z.string().nullable(),
+  /** Failed in the repo's local checkout, which the repo still uses: the tab offers a re-run in Heron's worktree. */
+  localCheckoutFailed: z.boolean(),
+  items: z.array(
+    z.object({
+      number: z.number(),
+      kind: z.enum(FEEDBACK_KINDS),
+      path: z.string().nullable(),
+      line: z.number().nullable(),
+      outdated: z.boolean(),
+      url: z.string().nullable(),
+      status: z.enum(ITEM_STATUSES).nullable(),
+      note: z.string().nullable(),
+      comments: z.array(threadComment),
+    }),
+  ),
+});
+
+/** One unit of feedback (an inline thread, a review body or a conversation comment) in the open batch. */
+export const feedbackGroup = z.object({
+  key: z.string(),
+  kind: z.enum(FEEDBACK_KINDS),
+  path: z.string().nullable(),
+  line: z.number().nullable(),
+  outdated: z.boolean(),
+  url: z.string().nullable(),
+  comments: z.array(threadComment),
+  verdict: z.enum(TRIAGE_VERDICTS).nullable(),
+  reason: z.string().nullable(),
+});
+
+export const feedbackPanel = z.object({
+  /** Iterations are turned on for the repo. */
+  enabled: z.boolean(),
+  eligible: z.boolean(),
+  reason: z.string().nullable(),
+  /** The agent starts on its own after triage; off, batches wait for Iterate. */
+  autoStart: z.boolean(),
+  comments: z.enum(ITERATION_COMMENTS),
+  /** Heron pushed `loopCap` times in a row: the PR waits for Iterate until someone else pushes. */
+  loopCapped: z.boolean(),
+  pushStreak: z.number(),
+  /** The open batch (debouncing, triaging, waiting for Iterate or held), newest first. */
+  batches: z.array(iterationSummary),
+  groups: z.array(feedbackGroup),
+});
+
+export const diffFile = z.object({
+  path: z.string(),
+  oldPath: z.string().nullable(),
+  status: z.enum(["added", "deleted", "modified", "renamed"]),
+  binary: z.boolean(),
+  additions: z.number(),
+  deletions: z.number(),
+  hunks: z.array(z.object({ header: z.string(), lines: z.array(diffContextLine) })),
+});
+
 export const prDetail = prListItem.extend({
   body: z.string(),
   headRef: z.string(),
@@ -114,6 +227,8 @@ export const prDetail = prListItem.extend({
   createdAt: z.number(),
   profileName: z.string().nullable(),
   runs: z.array(runSummary),
+  /** Iterations newest first, without batches merged into another. */
+  iterations: z.array(iterationSummary),
 });
 
 export const prFile = z.object({
@@ -128,6 +243,7 @@ export const activity = z.object({
   id,
   prId: id.nullable(),
   reviewId: id.nullable(),
+  iterationId: id.nullable(),
   ts: z.number(),
   kind: z.enum(ACTIVITY_KINDS),
   message: z.string(),
@@ -142,7 +258,8 @@ export const agentStep = z.object({
 
 export const agentStepEvent = z.object({
   id,
-  reviewId: id,
+  reviewId: id.nullable(),
+  iterationId: id.nullable(),
   ts: z.number(),
   step: agentStep,
 });
@@ -162,8 +279,17 @@ export const repo = z.object({
   includeDrafts: z.boolean(),
   profileId: id.nullable(),
   trustRepoClaudeConfig: z.boolean(),
-  enabled: z.boolean(),
-  manualPrs: z.array(z.number()),
+  dryRun: z.boolean(),
+  reviewEnabled: z.boolean(),
+  iterationEnabled: z.boolean(),
+  iterationAutoStart: z.boolean(),
+  iterationComments: z.enum(ITERATION_COMMENTS),
+  iterationProfileId: id.nullable(),
+  iterationAutoPush: z.boolean(),
+  iterationReply: z.boolean(),
+  setupCommand: z.string().nullable(),
+  useLocalCheckout: z.boolean(),
+  localCheckoutPath: z.string().nullable(),
   openPrCount: z.number(),
   lastPolledAt: z.number().nullable(),
   lastPollError: z.string().nullable(),
@@ -174,7 +300,17 @@ export const repoPatch = z.object({
   includeDrafts: z.boolean().optional(),
   profileId: id.nullable().optional(),
   trustRepoClaudeConfig: z.boolean().optional(),
-  enabled: z.boolean().optional(),
+  dryRun: z.boolean().optional(),
+  reviewEnabled: z.boolean().optional(),
+  iterationEnabled: z.boolean().optional(),
+  iterationAutoStart: z.boolean().optional(),
+  iterationComments: z.enum(ITERATION_COMMENTS).optional(),
+  iterationProfileId: id.nullable().optional(),
+  iterationAutoPush: z.boolean().optional(),
+  iterationReply: z.boolean().optional(),
+  setupCommand: z.string().trim().max(2000).nullable().optional(),
+  useLocalCheckout: z.boolean().optional(),
+  localCheckoutPath: z.string().trim().nullable().optional(),
 });
 
 export const accessibleRepo = z.object({
@@ -186,13 +322,6 @@ export const accessibleRepo = z.object({
   added: z.boolean(),
 });
 
-export const openPr = z.object({
-  number: z.number(),
-  title: z.string(),
-  author: z.string(),
-  isDraft: z.boolean(),
-});
-
 export const profileEntry = z.discriminatedUnion("type", [
   z.object({ type: z.literal("prompt"), markdown: z.string() }),
   z.object({ type: z.literal("skill"), skillId: id }),
@@ -201,8 +330,10 @@ export const profileEntry = z.discriminatedUnion("type", [
 export const profile = z.object({
   id,
   name: z.string(),
+  kind: z.enum(PROFILE_KINDS),
   isDefault: z.boolean(),
-  entry: profileEntry,
+  /** Null for iteration profiles (they run Heron's fixed prompt). */
+  entry: profileEntry.nullable(),
   model: z.string(),
   effort: effort.nullable(),
   timeoutMin: z.number(),
@@ -245,9 +376,11 @@ export const skillFiles = z.object({
 
 export const settings = z.object({
   parallelRuns: z.number().int().min(1).max(8),
+  iterationParallelRuns: z.number().int().min(1).max(8),
   pollIntervalSec: z.number().int().min(10).max(3600),
   debounceSec: z.number().int().min(0).max(7200),
-  dryRun: z.boolean(),
+  iterationDebounceSec: z.number().int().min(0).max(7200),
+  loopCap: z.number().int().min(1).max(20),
   launchAtLogin: z.boolean(),
   notifyPosted: z.boolean(),
   notifyFailed: z.boolean(),
@@ -264,6 +397,7 @@ export const queueStatus = z.object({
   running: z.number(),
   queued: z.number(),
   debouncing: z.number(),
+  readyToPush: z.number(),
 });
 
 export const doctorCheck = z.object({
@@ -282,7 +416,7 @@ export const doctorReport = z.object({
 });
 
 export const appEvent = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("openPr"), prId: id }),
+  z.object({ kind: z.literal("openPr"), prId: id, tab: z.enum(["iteration"]).optional() }),
   z.object({ kind: z.literal("openSettings") }),
   z.object({ kind: z.literal("config"), what: z.enum(["repos", "profiles", "skills", "settings"]) }),
 ]);
@@ -310,8 +444,8 @@ export const contract = {
     add: oc.input(z.object({ owner: z.string(), name: z.string() })).output(repo),
     update: oc.input(z.object({ id, patch: repoPatch })).output(repo),
     remove: oc.input(byId),
-    openPrs: oc.input(byId).output(z.array(openPr)),
-    setManualPrs: oc.input(z.object({ id, numbers: z.array(z.number().int()) })).output(repo),
+    /** Opens a folder picker for the local checkout; null when cancelled. */
+    pickCheckout: oc.input(byId).output(z.string().nullable()),
   },
   profiles: {
     list: oc.output(z.array(profile)),
@@ -320,6 +454,7 @@ export const contract = {
     setDefault: oc.input(byId),
     models: oc.output(z.array(modelOption)),
     outputContract: oc.output(z.string()),
+    iterationContract: oc.output(z.string()),
   },
   skills: {
     list: oc.output(z.array(skill)),
@@ -355,6 +490,22 @@ export const contract = {
     activity: oc.input(z.object({ prId: id })).output(eventIterator(activity)),
     agentSteps: oc.input(z.object({ reviewId: id })).output(eventIterator(agentStepEvent)),
   },
+  iterations: {
+    get: oc.input(byId).output(iterationDetail),
+    feedback: oc.input(z.object({ prId: id })).output(feedbackPanel),
+    iterate: oc.input(z.object({ prId: id })).output(iterationSummary),
+    push: oc.input(byId).output(iterationSummary),
+    discard: oc.input(byId),
+    /** Local checkout mode: soft-reset the ready commit off the branch, keeping its changes staged. */
+    uncommit: oc.input(byId),
+    /** `worktree`: run in Heron's worktree this time, even when the repo uses a local checkout. */
+    rerun: oc.input(z.object({ id, worktree: z.boolean().optional() })).output(iterationSummary),
+    cancel: oc.input(byId),
+    diff: oc.input(byId).output(z.array(diffFile)),
+    transcript: oc.input(byId).output(z.object({ entries: z.array(transcriptEntry), truncated: z.boolean() })),
+    steps: oc.input(byId).output(z.array(agentStepEvent)),
+    agentSteps: oc.input(z.object({ iterationId: id })).output(eventIterator(agentStepEvent)),
+  },
   queue: {
     pause: oc,
     resume: oc,
@@ -371,6 +522,12 @@ export type PrListItem = z.infer<typeof prListItem>;
 export type PrDetail = z.infer<typeof prDetail>;
 export type RunSummary = z.infer<typeof runSummary>;
 export type ReviewDetail = z.infer<typeof reviewDetail>;
+export type IterationBadge = z.infer<typeof iterationBadge>;
+export type IterationSummary = z.infer<typeof iterationSummary>;
+export type IterationDetail = z.infer<typeof iterationDetail>;
+export type FeedbackGroupDto = z.infer<typeof feedbackGroup>;
+export type FeedbackPanel = z.infer<typeof feedbackPanel>;
+export type DiffFileDto = z.infer<typeof diffFile>;
 export type PrFileDto = z.infer<typeof prFile>;
 export type ActivityDto = z.infer<typeof activity>;
 export type AgentStepEvent = z.infer<typeof agentStepEvent>;
@@ -378,7 +535,6 @@ export type TranscriptEntry = z.infer<typeof transcriptEntry>;
 export type RepoDto = z.infer<typeof repo>;
 export type RepoPatch = z.infer<typeof repoPatch>;
 export type AccessibleRepo = z.infer<typeof accessibleRepo>;
-export type OpenPr = z.infer<typeof openPr>;
 export type ProfileDto = z.infer<typeof profile>;
 export type ProfileInput = z.infer<typeof profileInput>;
 export type ModelOption = z.infer<typeof modelOption>;

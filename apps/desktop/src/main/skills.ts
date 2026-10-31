@@ -52,7 +52,7 @@ export async function hashSkill(dir: string): Promise<string> {
 }
 
 /** The slash command a profile sends: /heron:<name> for imported skills, /<name> for linked ones. */
-export function skillCommand(s: Pick<Skill, "name" | "source">): string {
+export function skillCommand(s: Skill): string {
   return s.source === "imported" ? `heron:${s.name}` : s.name;
 }
 
@@ -139,7 +139,7 @@ export class SkillService {
   async remove(id: number): Promise<void> {
     const skill = this.db.getSkill(id);
     if (!skill) return;
-    const users = this.db.listProfiles().filter((p) => p.entry.type === "skill" && p.entry.skillId === id);
+    const users = this.db.listProfiles("review").filter((p) => p.entry?.type === "skill" && p.entry.skillId === id);
     if (users.length > 0) {
       throw new Error(`Used by ${users.map((p) => `"${p.name}"`).join(", ")}. Change those profiles first.`);
     }

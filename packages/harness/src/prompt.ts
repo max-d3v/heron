@@ -34,7 +34,8 @@ export const OUTPUT_CONTRACT_SUMMARY = `Heron adds the following to every run. Y
     { "body": markdown,
       "comments": [{ "path", "line", "side"?, "start_line"?, "start_side"?, "body" }] }
   Inline comments must point at lines in the diff; others are moved into the body.
-  The review is posted as a plain COMMENT under your GitHub account.`;
+  The review is posted as a plain COMMENT under your GitHub account.
+  An empty body with no comments means no issues: nothing is posted.`;
 
 const OUTPUT_CONTRACT = `## Output contract
 
@@ -47,7 +48,9 @@ When the review is done, return it as structured output with exactly these field
   - \`start_line\` / \`start_side\` (optional): first line of a multi-line comment; must be in the same hunk and before \`line\`.
   - \`body\`: markdown. A \`\`\`suggestion block proposes a replacement for the commented lines.
 
-Comments on lines outside the diff are moved into the body as \`path:line — text\`. The review is posted on GitHub as a plain comment under the user's own account (no approve or request-changes verdict), so write it as the user would: don't sign it or mention Heron.`;
+Comments on lines outside the diff are moved into the body as \`path:line — text\`. The review is posted on GitHub as a plain comment under the user's own account (no approve or request-changes verdict), so write it as the user would: don't sign it or mention Heron.
+
+If you found no issues worth raising, return an empty \`body\` and no \`comments\`: nothing is posted on the PR. Don't write "No issues found" or "LGTM" in the body.`;
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n…(truncated)` : text;

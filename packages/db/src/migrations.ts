@@ -125,4 +125,112 @@ export const MIGRATIONS: readonly string[] = [
   /* 2: token usage per run */ `
   ALTER TABLE reviews ADD COLUMN usage_json TEXT;
   `,
+  /* 3: iterations (§15) */ `
+  ALTER TABLE repos ADD COLUMN iteration_mode TEXT NOT NULL DEFAULT 'manual' CHECK (iteration_mode IN ('manual', 'mine', 'all'));
+  ALTER TABLE repos ADD COLUMN iteration_profile_id INTEGER REFERENCES profiles(id) ON DELETE SET NULL;
+  ALTER TABLE repos ADD COLUMN iteration_auto_push INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE repos ADD COLUMN iteration_reply INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE repos ADD COLUMN setup_command TEXT;
+  ALTER TABLE repos ADD COLUMN local_checkout_path TEXT;
+  -- The next poll fetches every open PR again, so head repos and feedback get filled in.
+  UPDATE repos SET etag = NULL;
+
+  -- Iteration profiles have no entry; their entry columns keep the old defaults and are ignored.
+  ALTER TABLE profiles ADD COLUMN kind TEXT NOT NULL DEFAULT 'review' CHECK (kind IN ('review', 'iteration'));
+  DROP INDEX profiles_single_default;
+  CREATE UNIQUE INDEX profiles_single_default ON profiles(kind) WHERE is_default = 1;
+  INSERT INTO profiles (name, is_default, kind, entry_type, model, effort, timeout_min, max_turns, created_at)
+  VALUES ('Default', 1, 'iteration', 'prompt', 'opus', 'high', 30, 150, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+
+  ALTER TABLE prs ADD COLUMN head_repo TEXT;
+  ALTER TABLE prs ADD COLUMN heron_push_streak INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE prs ADD COLUMN feedback_synced_at INTEGER;
+
+  CREATE TABLE iterations (
+    id INTEGER PRIMARY KEY,
+    pr_id INTEGER NOT NULL REFERENCES prs(id) ON DELETE CASCADE,
+    state TEXT NOT NULL,
+    trigger_kind TEXT NOT NULL,
+    head_sha TEXT,
+    run_after INTEGER,
+    attempt INTEGER NOT NULL DEFAULT 0,
+    retry_step TEXT,
+    last_error TEXT,
+    pid INTEGER,
+    session_id TEXT,
+    profile_snapshot_json TEXT,
+    resolved_model TEXT,
+    transcript_path TEXT,
+    cwd_kind TEXT CHECK (cwd_kind IN ('worktree', 'local')),
+    items_json TEXT,
+    output_json TEXT,
+    raw_output TEXT,
+    commit_sha TEXT,
+    triage_total INTEGER NOT NULL DEFAULT 0,
+    triage_change INTEGER NOT NULL DEFAULT 0,
+    merged_into INTEGER REFERENCES iterations(id) ON DELETE SET NULL,
+    usage_json TEXT,
+    started_at INTEGER,
+    finished_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_activity_at INTEGER NOT NULL
+  );
+  CREATE INDEX iterations_by_pr ON iterations(pr_id, id DESC);
+  CREATE INDEX iterations_by_state ON iterations(state, run_after);
+
+  CREATE TABLE feedback (
+    id INTEGER PRIMARY KEY,
+    pr_id INTEGER NOT NULL REFERENCES prs(id) ON DELETE CASCADE,
+    github_id INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('review', 'inline', 'conversation')),
+    thread_root_id INTEGER NOT NULL,
+    author TEXT NOT NULL,
+    body TEXT NOT NULL,
+    url TEXT,
+    path TEXT,
+    line INTEGER,
+    outdated INTEGER NOT NULL DEFAULT 0,
+    diff_hunk TEXT,
+    review_state TEXT,
+    created_at INTEGER NOT NULL,
+    verdict TEXT CHECK (verdict IN ('change', 'no-change')),
+    reason TEXT,
+    iteration_id INTEGER REFERENCES iterations(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'unhandled' CHECK (status IN ('unhandled', 'handled', 'ignored')),
+    handled_at INTEGER,
+    observed_at INTEGER NOT NULL,
+    UNIQUE (pr_id, kind, github_id)
+  );
+  CREATE INDEX feedback_by_pr ON feedback(pr_id, status);
+  CREATE INDEX feedback_by_iteration ON feedback(iteration_id);
+
+  ALTER TABLE activity ADD COLUMN iteration_id INTEGER REFERENCES iterations(id) ON DELETE CASCADE;
+  CREATE INDEX activity_by_iteration ON activity(iteration_id, id);
+  `,
+  /* 4: reviews and iterations switch on and off separately; reviews start on, iterations off */ `
+  ALTER TABLE repos RENAME COLUMN enabled TO review_enabled;
+  ALTER TABLE repos ADD COLUMN iteration_enabled INTEGER NOT NULL DEFAULT 0;
+  `,
+  /* 5: manual scope lists every PR and reviews only on Review now, so nothing is hand-picked any more;
+        the local checkout gets its own switch (a path already set stays remembered, switched off) */ `
+  DROP TABLE manual_prs;
+  ALTER TABLE repos ADD COLUMN use_local_checkout INTEGER NOT NULL DEFAULT 0;
+  `,
+  /* 6: iteration mode splits in two: whether the agent starts on its own, and whose comments count.
+        manual was anyone's comments, waiting for Iterate. The old CHECK and DEFAULT stay ('manual' is
+        never written now), so new repos set iteration_comments themselves. */ `
+  ALTER TABLE repos ADD COLUMN iteration_auto_start INTEGER NOT NULL DEFAULT 0;
+  UPDATE repos SET iteration_auto_start = 1 WHERE iteration_mode != 'manual';
+  UPDATE repos SET iteration_mode = 'all' WHERE iteration_mode = 'manual';
+  ALTER TABLE repos RENAME COLUMN iteration_mode TO iteration_comments;
+  `,
+  /* 7: dry run moves from General to each repo's reviews (iterations have none: Push is the gate).
+        A global dry run that was on stays on for every repo, and iterations keep posting nothing:
+        auto push and replies go off. */ `
+  ALTER TABLE repos ADD COLUMN dry_run INTEGER NOT NULL DEFAULT 0;
+  UPDATE repos SET dry_run = 1, iteration_auto_push = 0, iteration_reply = 0
+    WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'dryRun' AND value_json = 'true');
+  DELETE FROM settings WHERE key = 'dryRun';
+  `,
 ];

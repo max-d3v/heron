@@ -4,7 +4,9 @@ import type { AppEvent } from "@heron/rpc";
 
 export interface StepEvent {
   id: number;
-  reviewId: number;
+  /** One of the two is set: the run the step belongs to. */
+  reviewId: number | null;
+  iterationId: number | null;
   ts: number;
   step: AgentStep;
 }

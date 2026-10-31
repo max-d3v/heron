@@ -25,10 +25,13 @@ How the change tackles its problem: the architecture, where logic lives, the app
 
 Bad practices in code the change adds or modifies; pre-existing code is out of scope.
 
-- Type assertions that bypass the type system: `as X`, `as unknown as X`, non-null `!`, `any`.
+- Duplicated logic: the change re-implements something the repo already has (a helper, util, type or constant) or adds near-identical blocks that differ in a value or two.
+- Types that bypass or blur the type system:
+  - Assertions: `as X`, `as unknown as X`, non-null `!`, `any`.
+  - Especially `Pick<>` types: ad-hoc slices of a domain type in signatures, like `Pick<Review, "id" | "prId">`. Take the whole type, or just the field when that's all the function reads (`scope: RepoScope`, not `Pick<Repo, "scope">`).
+  - Indexed access types like `Type["x"]["y"]`: they couple the code to another type's internal shape. Use the named type (`RepoScope`, not `Repo["scope"]`), or export one if it doesn't exist.
 - Functions that do more than one thing.
 - try/catch blocks that wrap large sections or swallow errors.
-- Duplicated logic.
 - Deep nesting.
 - Boolean flag parameters.
 - Dead or commented-out code.
@@ -45,7 +48,7 @@ Simplicity wins: never ask for an abstraction the change doesn't need yet. The r
 
 > 2 bugs, 1 decision, 3 smells.
 
-When nothing survives: `No issues found.`
+When nothing survives, return an empty summary and no comments, so nothing gets posted on the PR.
 
 **Comments**: one per problem, on the lines it concerns.
 
