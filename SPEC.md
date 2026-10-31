@@ -103,6 +103,7 @@ Dependency rules:
 | `includeDrafts` | Default **off**. Not shown for `manual`. |
 | `profileId` | `null` → default profile |
 | `trustRepoClaudeConfig` | Default **off**. When on, also loads the repo's `.claude/` (`settingSources` gains `project`). |
+| `dryRun` | Default **off**, in the Review section. Reviews run but post nothing (no review, no `heron/review` check); results show in the app only. Iterations have no dry run: **Push** is their gate (§15.2). |
 | `reviewEnabled` | Turn reviews off for one repo (iterations have their own switch, §15.2) |
 | Iteration fields | See §15.2 |
 
@@ -125,7 +126,7 @@ The prompt page shows a **read-only "Output contract" box** under the editor. It
 - Each run stores the skill's content hash in its snapshot.
 
 ### General settings
-Parallel runs (default 2), poll interval (default 10s), debounce (default 5s), iteration debounce (default 30s), iteration loop cap (default 6), dry run (default off), launch at login (default off), notifications on posted/failed, clear worktree cache (shows disk usage).
+Grouped by feature. **Reviews:** parallel runs (default 2), debounce (default 5s). **Iterations:** parallel runs (default 2, apart from reviews'), iteration debounce (default 30s), loop cap (default 6); greyed out, with a tooltip saying why, while no repo has iterations on. Shared: poll interval (default 10s), launch at login (default off), notifications on posted/failed, clear worktree cache (shows disk usage).
 
 ---
 
@@ -165,7 +166,7 @@ Every step is **idempotent** and saves its output before changing state.
    - Parse the structured output against the schema (§7.4). **If parsing fails → `failed`**, with no automatic retry; show the raw output and a Re-run button.
    - Check each inline comment against the diff. Comments on lines outside the diff move into the body as `path:line — text`.
 4. **posting**
-   - If dry run → `completed`.
+   - If the repo's dry run is on → `completed`.
    - If the output has an empty body and no comments (no issues found) → `completed`, with nothing posted. The `heron/review` check still turns green ("No issues found").
    - Otherwise **look for an existing review with our marker** for this SHA. If one exists, record it and move to `posted`; if not, `POST` the review with `event: COMMENT`.
 
@@ -270,7 +271,7 @@ Map SDK messages to `AgentStep`s: `Reading src/auth.ts`, `Searching "token"`, `R
 ## 10. Data model (SQLite)
 
 ```
-repos(id, owner, name, scope, include_drafts, profile_id, trust_repo_claude_config, review_enabled, iteration_enabled, etag, created_at,
+repos(id, owner, name, scope, include_drafts, profile_id, trust_repo_claude_config, dry_run, review_enabled, iteration_enabled, etag, created_at,
       iteration_auto_start, iteration_comments, iteration_profile_id, iteration_auto_push, iteration_reply, setup_command, local_checkout_path)
 prs(id, repo_id, number, title, author, is_draft, head_sha, head_ref, head_repo, base_ref, state, url, updated_at,
     heron_push_streak)
@@ -366,8 +367,8 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
 | `localCheckoutPath` | The checkout. It must be a clone of the repo (a remote points at `github.com/<owner>/<name>`), checked when it's saved or switched on. Kept while the switch is off. |
 
 - **Profiles** gain `kind: "review" | "iteration"`, with one default per kind. Iteration profiles have **no entry** (no prompt or skill), only `model`, `effort`, `timeoutMin` (default 30) and `maxTurns` (default 150). Their page shows the fixed prompt and the output contract read-only.
-- **General:** iteration debounce (default 30s), loop cap (default 6).
-- **Dry run:** no pushes and no replies; **Push** is disabled.
+- **General:** iteration parallel runs (default 2, a cap of their own: iterations and reviews don't share slots), iteration debounce (default 30s), loop cap (default 6).
+- **Dry run:** none for iterations (a repo's dry run is for its reviews only). To post nothing, leave `iterationAutoPush` and `iterationReply` off.
 
 ### 15.3 Feedback
 - **Kinds:** review bodies, inline review comments, replies in threads, and conversation comments.
@@ -414,7 +415,7 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
 - **Push:** `git push https://github.com/<owner>/<name> <sha>:refs/heads/<headRef>` with the `gh` token (§9), never forced, in both modes. Auto-push on → right away. Off → `ready` until **Push**, **Discard** or, in local checkout mode, **Uncommit** (`git reset --soft` to the PR head on the local checkout, so the changes stay staged for you to finish; Heron pushes and replies nothing).
 - **Head moved** (a non-fast-forward rejection, or a new `headSha` while in flight or `ready`) → `stale`. A new iteration with the same comments goes straight to `queued`, with no triage and no click.
 - **403 / branch protection** → `failed`, no retry.
-- **Replies** (`iterationReply` on, never in dry run): on each addressed inline thread, `Addressed in abc1234 — <note>` with the hidden marker, then resolve the thread (GraphQL `resolveReviewThread`; a thread that's already resolved is left alone). On each `not_addressed` inline thread, `Not addressed — <note>` with the marker, and the thread stays open: a reply from the reviewer reopens it (§15.3) and the agent sees its earlier reason in the thread. Not-addressed replies go out with the addressed ones after the push, or right away when there's no commit; a discarded result posts nothing. An item the agent left out of its output gets no reply. Look for the marker first, so a retry never posts twice. A reply or resolve GitHub refuses (deleted comment, no permission) is logged in Activity and doesn't fail the iteration. No reply for review bodies or conversation comments; those notes stay in the app.
+- **Replies** (`iterationReply` on): on each addressed inline thread, `Addressed in abc1234 — <note>` with the hidden marker, then resolve the thread (GraphQL `resolveReviewThread`; a thread that's already resolved is left alone). On each `not_addressed` inline thread, `Not addressed — <note>` with the marker, and the thread stays open: a reply from the reviewer reopens it (§15.3) and the agent sees its earlier reason in the thread. Not-addressed replies go out with the addressed ones after the push, or right away when there's no commit; a discarded result posts nothing. An item the agent left out of its output gets no reply. Look for the marker first, so a retry never posts twice. A reply or resolve GitHub refuses (deleted comment, no permission) is logged in Activity and doesn't fail the iteration. No reply for review bodies or conversation comments; those notes stay in the app.
 - **Loop cap:** Heron records each SHA it pushes. After `loopCap` Heron pushes in a row with no other push, the PR behaves as manual start until someone else pushes, and the Iteration tab says so. If the PR isn't in the repo's review scope, Heron never reviews the iteration commit, so the loop ends after one push anyway.
 
 ### 15.7 States

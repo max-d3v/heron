@@ -225,4 +225,12 @@ export const MIGRATIONS: readonly string[] = [
   UPDATE repos SET iteration_mode = 'all' WHERE iteration_mode = 'manual';
   ALTER TABLE repos RENAME COLUMN iteration_mode TO iteration_comments;
   `,
+  /* 7: dry run moves from General to each repo's reviews (iterations have none: Push is the gate).
+        A global dry run that was on stays on for every repo, and iterations keep posting nothing:
+        auto push and replies go off. */ `
+  ALTER TABLE repos ADD COLUMN dry_run INTEGER NOT NULL DEFAULT 0;
+  UPDATE repos SET dry_run = 1, iteration_auto_push = 0, iteration_reply = 0
+    WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'dryRun' AND value_json = 'true');
+  DELETE FROM settings WHERE key = 'dryRun';
+  `,
 ];

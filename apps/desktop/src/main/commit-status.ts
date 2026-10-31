@@ -1,4 +1,4 @@
-import { errorMessage, isInFlight, type Activity, type Pr, type Review, type ReviewState, type Settings } from "@heron/core";
+import { errorMessage, isInFlight, type Activity, type Pr, type Review, type ReviewState } from "@heron/core";
 import type { HeronDb } from "@heron/db";
 import { REVIEW_STATUS_CONTEXT, type GitHubClient, type ReviewStatus } from "@heron/github";
 import type { Bus } from "./bus.ts";
@@ -8,7 +8,6 @@ export interface CommitStatusDeps {
   db: HeronDb;
   store: Store;
   github: GitHubClient;
-  settings: () => Settings;
 }
 
 /**
@@ -38,8 +37,8 @@ export class CommitStatusReporter {
     const pr = review ? this.d.db.getPr(review.prId) : null;
     const repo = pr ? this.d.db.getRepo(pr.repoId) : null;
     if (!review || !pr || !repo) return;
-    // The snapshot is taken just after the first step starts, from these same settings.
-    if (review.profileSnapshot?.dryRun ?? this.d.settings().dryRun) return;
+    // The snapshot is taken just after the first step starts, from this same repo setting.
+    if (review.profileSnapshot?.dryRun ?? repo.dryRun) return;
 
     const status = statusFor(review, pr, from, to);
     if (!status) return;

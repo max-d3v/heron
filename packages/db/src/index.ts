@@ -56,6 +56,7 @@ function toRepo(r: Row): Repo {
     includeDrafts: bool(r.include_drafts),
     profileId: num(r.profile_id),
     trustRepoClaudeConfig: bool(r.trust_repo_claude_config),
+    dryRun: bool(r.dry_run),
     reviewEnabled: bool(r.review_enabled),
     iterationEnabled: bool(r.iteration_enabled),
     iterationAutoStart: bool(r.iteration_auto_start),
@@ -447,6 +448,7 @@ export class HeronDb {
         | "includeDrafts"
         | "profileId"
         | "trustRepoClaudeConfig"
+        | "dryRun"
         | "reviewEnabled"
         | "iterationEnabled"
         | "iterationAutoStart"
@@ -469,6 +471,7 @@ export class HeronDb {
     if (patch.includeDrafts !== undefined) cols.include_drafts = patch.includeDrafts ? 1 : 0;
     if (patch.profileId !== undefined) cols.profile_id = patch.profileId;
     if (patch.trustRepoClaudeConfig !== undefined) cols.trust_repo_claude_config = patch.trustRepoClaudeConfig ? 1 : 0;
+    if (patch.dryRun !== undefined) cols.dry_run = patch.dryRun ? 1 : 0;
     if (patch.reviewEnabled !== undefined) cols.review_enabled = patch.reviewEnabled ? 1 : 0;
     if (patch.iterationEnabled !== undefined) cols.iteration_enabled = patch.iterationEnabled ? 1 : 0;
     if (patch.iterationAutoStart !== undefined) cols.iteration_auto_start = patch.iterationAutoStart ? 1 : 0;

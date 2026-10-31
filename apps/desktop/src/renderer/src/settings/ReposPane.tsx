@@ -152,10 +152,17 @@ function RepoEditor({ repo, onRemoved }: { repo: RepoDto; onRemoved: () => void 
             ]}
           />
         </Field>
+
+        <Field label="Dry run" hint={repo.dryRun ? "Reviews run but nothing is posted to GitHub: no review, no check. Results show in the app only." : undefined}>
+          <label className="flex items-center gap-2 text-[13px]">
+            <Checkbox checked={repo.dryRun} onChange={(v) => patch({ dryRun: v })} />
+            Post nothing to GitHub
+          </label>
+        </Field>
       </Section>
 
       <Section title="Iteration" on={repo.iterationEnabled} onToggle={(v) => patch({ iterationEnabled: v })}>
-        <IterationFields repo={repo} profiles={profiles.data ?? []} dryRun={settings.data?.dryRun ?? false} onPatch={patch} />
+        <IterationFields repo={repo} profiles={profiles.data ?? []} onPatch={patch} />
       </Section>
 
       <div className="mt-6 border-t border-line pt-2">
@@ -237,12 +244,10 @@ function Section({
 function IterationFields({
   repo,
   profiles,
-  dryRun,
   onPatch,
 }: {
   repo: RepoDto;
   profiles: ProfileDto[];
-  dryRun: boolean;
   onPatch: (p: RepoPatch) => void;
 }) {
   const iterationProfiles = profiles.filter((p) => p.kind === "iteration");
@@ -292,7 +297,7 @@ function IterationFields({
         />
       </Field>
 
-      <Field label="Push" hint={dryRun ? "Dry run is on, so nothing is pushed and Push stays disabled." : repo.iterationAutoPush ? undefined : "Results wait for Push."}>
+      <Field label="Push" hint={repo.iterationAutoPush ? undefined : "Results wait for Push."}>
         <label className="flex items-center gap-2 text-[13px]">
           <Checkbox checked={repo.iterationAutoPush} onChange={(v) => onPatch({ iterationAutoPush: v })} />
           Push automatically

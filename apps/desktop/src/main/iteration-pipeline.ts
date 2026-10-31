@@ -24,7 +24,6 @@ import {
   type IterationState,
   type Pr,
   type Repo,
-  type Settings,
   type TriageVerdict,
 } from "@heron/core";
 import type { HeronDb, IterationPatch } from "@heron/db";
@@ -53,7 +52,6 @@ export interface IterationPipelineDeps {
   version: string;
   env: () => NodeJS.ProcessEnv;
   claudePath: () => string | null;
-  settings: () => Settings;
   viewerLogin: () => string | null;
 }
 
@@ -194,7 +192,6 @@ export class IterationPipeline {
       timeoutMin: profile.timeoutMin,
       maxTurns: profile.maxTurns,
       trustRepoClaudeConfig: repo.trustRepoClaudeConfig,
-      dryRun: this.d.settings().dryRun,
       autoPush: repo.iterationAutoPush,
       reply: repo.iterationReply,
       // The setup command is for Heron's worktree; a local checkout is the user's to keep set up.
@@ -452,14 +449,13 @@ export class IterationPipeline {
       await git.updateRef(clone, ref, sha);
     }
     await writeFile(paths.iterationDiff(it.id), await git.diff(clone, it.headSha, sha));
-    return { patch: { commitSha: sha }, to: snap.dryRun || !snap.autoPush ? "ready" : "pushing" };
+    return { patch: { commitSha: sha }, to: snap.autoPush ? "pushing" : "ready" };
   }
 
   // ── pushing ───────────────────────────────────────────────────────────────
 
   private async push(it: Iteration, pr: Pr, repo: Repo): Promise<IterationPatch> {
     const { github, git, paths } = this.d;
-    if (this.d.settings().dryRun) throw new PermanentError("Dry run is on, so Heron doesn't push");
     if (!it.commitSha || !it.headSha) throw new PermanentError("Nothing to push");
     const detail = await github.getPull(repo.owner, repo.name, pr.number);
     if (detail.state !== "open") throw new PrClosedError(detail.state);
@@ -508,7 +504,7 @@ export class IterationPipeline {
 
   /** The inline threads to reply on. Addressed ones need the commit; an item the agent didn't report on gets nothing. */
   private replyTargets(it: Iteration, snap: IterationSnapshot): ReplyTarget[] {
-    if (!snap.reply || this.d.settings().dryRun || !it.output) return [];
+    if (!snap.reply || !it.output) return [];
     return it.output.items.flatMap<ReplyTarget>((o) => {
       const item = it.items?.find((i) => i.number === o.number);
       if (item?.kind !== "inline") return [];

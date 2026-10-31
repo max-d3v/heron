@@ -79,6 +79,8 @@ export interface Repo {
   includeDrafts: boolean;
   profileId: number | null;
   trustRepoClaudeConfig: boolean;
+  /** Reviews run but post nothing to GitHub (off by default). */
+  dryRun: boolean;
   /** Reviews run on this repo's PRs (on by default). */
   reviewEnabled: boolean;
   /** Iterations run on this repo's PRs (off by default). With both off, the repo isn't polled. */
@@ -185,7 +187,6 @@ export interface IterationSnapshot {
   timeoutMin: number;
   maxTurns: number;
   trustRepoClaudeConfig: boolean;
-  dryRun: boolean;
   autoPush: boolean;
   reply: boolean;
   setupCommand: string | null;
@@ -452,14 +453,16 @@ export interface QueueStatus {
 }
 
 export interface Settings {
+  /** Review runs at the same time. */
   parallelRuns: number;
+  /** Iteration agent runs at the same time, apart from reviews' (triage, pushes and replies take none). */
+  iterationParallelRuns: number;
   pollIntervalSec: number;
   debounceSec: number;
   /** An iteration's batch starts this long after the newest unhandled comment. */
   iterationDebounceSec: number;
   /** Heron pushes in a row (with no other push) after which a PR waits for Iterate. */
   loopCap: number;
-  dryRun: boolean;
   launchAtLogin: boolean;
   notifyPosted: boolean;
   notifyFailed: boolean;
@@ -473,11 +476,11 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   parallelRuns: 2,
+  iterationParallelRuns: 2,
   pollIntervalSec: 10,
   debounceSec: 5,
   iterationDebounceSec: 30,
   loopCap: 6,
-  dryRun: false,
   launchAtLogin: false,
   notifyPosted: true,
   notifyFailed: true,

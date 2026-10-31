@@ -91,7 +91,6 @@ function IterationRuns({ iterations, selectedId, onOpen }: { iterations: Iterati
             <td className="px-2 py-1.5 font-mono text-[11.5px]">{i.commitSha ? shortSha(i.commitSha) : "—"}</td>
             <td className="px-2 py-1.5">
               <Badge tone={ITERATION_TONE[i.state]}>{ITERATION_LABEL[i.state]}</Badge>
-              {i.dryRun && <span className="ml-1 text-[10.5px] text-fg-3">dry run</span>}
             </td>
             <td className="px-2 py-1.5 text-fg-2">{ITERATION_TRIGGER[i.trigger]}</td>
             <td className="max-w-[160px] truncate px-2 py-1.5 text-fg-2">{i.model ?? "—"}</td>

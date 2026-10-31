@@ -32,11 +32,9 @@ import { PrClosedError } from "./pipeline.ts";
 import { killOrphan, planRetry, type QueuePauses } from "./scheduler.ts";
 import type { Store } from "./store.ts";
 
-/** What iterations share with the review queue: its pauses and its parallel-run slots. */
+/** What iterations share with the review queue: its pauses. */
 export interface QueueControl extends QueuePauses {
   pauseReasons(): PauseReason[];
-  /** Review runs holding a parallel-run slot. */
-  reviewRuns(): number;
 }
 
 export interface IterationSchedulerDeps {
@@ -67,8 +65,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /**
  * Owns iterations (§15): keeps each eligible PR's comments in `feedback`, batches the
  * unhandled ones after a debounce, triages them, and runs the agent, commit, push and
- * replies through the pipeline. Shares the review queue's pauses and parallel-run slots;
- * triage doesn't take a slot.
+ * replies through the pipeline. Shares the review queue's pauses; its parallel-run slots
+ * are its own (`iterationParallelRuns`), and triage doesn't take one.
  */
 export class IterationScheduler {
   private readonly runs = new Map<number, ActiveRun>();
@@ -369,7 +367,6 @@ export class IterationScheduler {
   push(iterationId: number): Iteration {
     const it = this.d.db.getIteration(iterationId);
     if (!it || it.state !== "ready") throw new Error("Nothing is ready to push");
-    if (this.d.settings().dryRun) throw new Error("Dry run is on: pushes are blocked");
     this.requireOn(it.prId);
     // The tick picks it up like any step to resume (pushing needs no parallel-run slot).
     const next = this.d.store.transitionIteration(it, "pushing", { message: "Pushing (Push)" });
@@ -479,7 +476,7 @@ export class IterationScheduler {
       }
 
       if (!paused) {
-        const max = this.d.settings().parallelRuns;
+        const max = this.d.settings().iterationParallelRuns;
         const busyPrs = new Set([...this.runs.values()].map((r) => r.prId));
         // Interrupted steps and Push clicks first, then the queue in order.
         const resumable = db.listIterationsInStates(ITERATION_STEP_STATES).filter((i) => !this.runs.has(i.id));
@@ -488,7 +485,7 @@ export class IterationScheduler {
           if (busyPrs.has(it.prId) || blocked(it.prId)) continue;
           const step = it.state === "queued" ? (it.retryStep ?? "preparing") : isIterationInFlight(it.state) ? it.state : "preparing";
           const slot = needsSlot(step);
-          if (slot && this.slotCount + this.d.queue.reviewRuns() >= max) continue;
+          if (slot && this.slotCount >= max) continue;
           busyPrs.add(it.prId);
           this.startRun(it, slot);
         }

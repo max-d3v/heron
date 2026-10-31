@@ -116,8 +116,8 @@ async function main(): Promise<void> {
     note.show();
   };
 
-  new CommitStatusReporter({ db, store, github, settings }).start(bus);
-  const pipeline = new Pipeline({ db, store, github, git, paths, skills, version, env: () => env, claudePath: () => bins.claude, settings });
+  new CommitStatusReporter({ db, store, github }).start(bus);
+  const pipeline = new Pipeline({ db, store, github, git, paths, skills, version, env: () => env, claudePath: () => bins.claude });
   const iterationPipeline = new IterationPipeline({
     db,
     store,
@@ -127,12 +127,11 @@ async function main(): Promise<void> {
     version,
     env: () => env,
     claudePath: () => bins.claude,
-    settings,
     viewerLogin: () => viewerLogin,
   });
   // eslint-disable-next-line prefer-const -- assigned after the scheduler, which needs a reference to it
   let poller: Poller;
-  // eslint-disable-next-line prefer-const -- the two schedulers share slots and pauses, so each refers to the other
+  // eslint-disable-next-line prefer-const -- the two schedulers share pauses and the queue status, so each refers to the other
   let iterations: IterationScheduler;
   const scheduler = new Scheduler({
     db,
@@ -146,7 +145,7 @@ async function main(): Promise<void> {
     viewerLogin: () => viewerLogin,
     notify,
     requestPoll: () => void poller.pollNow(),
-    iterations: () => ({ slots: iterations.slotCount, running: iterations.runningCount, readyToPush: iterations.readyToPush() }),
+    iterations: () => ({ running: iterations.runningCount, readyToPush: iterations.readyToPush() }),
   });
   iterations = new IterationScheduler({
     db,
@@ -163,7 +162,6 @@ async function main(): Promise<void> {
       pauseReasons: () => scheduler.pauseReasons(),
       pauseForLimit: (until, message) => scheduler.pauseForLimit(until, message),
       pauseForAuth: (message) => scheduler.pauseForAuth(message),
-      reviewRuns: () => scheduler.runningCount,
     },
   });
   poller = new Poller({

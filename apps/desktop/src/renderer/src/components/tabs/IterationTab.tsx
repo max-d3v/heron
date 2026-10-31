@@ -21,7 +21,6 @@ const COMMENTS_EMPTY: Record<FeedbackPanel["comments"], string> = {
 /** The Iteration tab (§15.8): the open batch of feedback, then the latest iteration that ran the agent (or the one picked in Runs). */
 export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: IterationSummary | null }) {
   const panel = useQuery(orpc.iterations.feedback.queryOptions({ input: { prId: pr.id } }));
-  const settings = useQuery(orpc.settings.get.queryOptions());
 
   if (panel.isPending) {
     return (
@@ -44,7 +43,7 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
     if (!open && iteration) {
       return (
         <div className="mx-auto flex max-w-[900px] flex-col gap-5 px-5 py-4">
-          <IterationRun key={iteration.id} pr={pr} summary={iteration} dryRun={settings.data?.dryRun ?? false} on={p.enabled} />
+          <IterationRun key={iteration.id} pr={pr} summary={iteration} on={p.enabled} />
         </div>
       );
     }
@@ -82,7 +81,7 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
       )}
       {showFeedback && <FeedbackSection pr={pr} panel={p} readyId={ready?.id ?? null} />}
       {iteration ? (
-        <IterationRun key={iteration.id} pr={pr} summary={iteration} dryRun={settings.data?.dryRun ?? false} on={p.enabled} />
+        <IterationRun key={iteration.id} pr={pr} summary={iteration} on={p.enabled} />
       ) : (
         !showFeedback && (
           <div className="pt-12">
@@ -235,10 +234,10 @@ function ClampedMarkdown({ text }: { text: string }) {
 // ── the iteration ────────────────────────────────────────────────────────────
 
 /** `on`: iterations are turned on for the repo (Push and Re-run need it). */
-function IterationRun({ pr, summary, dryRun, on }: { pr: PrDetail; summary: IterationSummary; dryRun: boolean; on: boolean }) {
+function IterationRun({ pr, summary, on }: { pr: PrDetail; summary: IterationSummary; on: boolean }) {
   if (isInFlightIteration(summary)) return <LiveIteration summary={summary} />;
   if (summary.state === "queued" || summary.state === "held") return <PendingIteration summary={summary} />;
-  return <FinishedIteration pr={pr} summary={summary} dryRun={dryRun} on={on} />;
+  return <FinishedIteration pr={pr} summary={summary} on={on} />;
 }
 
 function PendingIteration({ summary }: { summary: IterationSummary }) {
@@ -311,7 +310,7 @@ const FINISHED_NOTE: Partial<Record<IterationSummary["state"], string>> = {
   uncommitted: "Uncommitted. The changes are staged in your local checkout for you to finish; its comments count as handled.",
 };
 
-function FinishedIteration({ pr, summary, dryRun, on }: { pr: PrDetail; summary: IterationSummary; dryRun: boolean; on: boolean }) {
+function FinishedIteration({ pr, summary, on }: { pr: PrDetail; summary: IterationSummary; on: boolean }) {
   const detail = useQuery(orpc.iterations.get.queryOptions({ input: { id: summary.id } }));
   const diff = useQuery({ ...orpc.iterations.diff.queryOptions({ input: { id: summary.id } }), enabled: summary.commitSha !== null });
   const steps = useQuery(orpc.iterations.steps.queryOptions({ input: { id: summary.id } }));
@@ -354,12 +353,12 @@ function FinishedIteration({ pr, summary, dryRun, on }: { pr: PrDetail; summary:
                   </Button>
                 </ButtonTip>
               )}
-              <ButtonTip content={dryRun ? "Dry run is on, so nothing is pushed" : on ? null : "Iterations are off for this repo"}>
+              <ButtonTip content={on ? null : "Iterations are off for this repo"}>
                 <Button
                   size="sm"
                   variant="primary"
                   icon={<Upload className="size-3" />}
-                  disabled={dryRun || !on}
+                  disabled={!on}
                   busy={push.isPending}
                   onClick={() => push.mutate({ id: it.id })}
                 >
@@ -482,7 +481,6 @@ function IterationMeta({ it }: { it: IterationDetail }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-fg-2">
       <Badge tone={ITERATION_TONE[it.state]}>{ITERATION_LABEL[it.state]}</Badge>
-      {it.dryRun && <Badge tone="teal">Dry run</Badge>}
       {parts.map((p, i) => (
         <span key={i} className="flex items-center gap-2">
           {i > 0 && <span className="text-fg-3">·</span>}

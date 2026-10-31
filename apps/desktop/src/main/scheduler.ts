@@ -43,8 +43,8 @@ export interface SchedulerDeps {
   viewerLogin: () => string | null;
   notify: (n: { title: string; body: string; prId: number }) => void;
   requestPoll: () => void;
-  /** Iterations share the parallel-run slots and show in the queue status. */
-  iterations: () => { slots: number; running: number; readyToPush: number };
+  /** Iterations show in the queue status. */
+  iterations: () => { running: number; readyToPush: number };
 }
 
 interface ActiveRun {
@@ -382,7 +382,7 @@ export class Scheduler {
         const resumable = db.listReviewsInStates(STEP_STATES).filter((r) => !this.runs.has(r.id));
         const queued = db.listReviewsInStates(["queued"]).filter((r) => (r.runAfter ?? 0) <= now);
         for (const r of [...resumable, ...queued]) {
-          if (this.runs.size + this.d.iterations().slots >= max) break;
+          if (this.runs.size >= max) break;
           // One run per PR at a time: they share the PR's worktree.
           if (busyPrs.has(r.prId)) continue;
           busyPrs.add(r.prId);

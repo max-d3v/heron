@@ -15,7 +15,6 @@ import {
   type ProfileSnapshot,
   type Repo,
   type Review,
-  type Settings,
 } from "@heron/core";
 import type { HeronDb, ReviewPatch } from "@heron/db";
 import type { GitClient } from "@heron/git";
@@ -51,7 +50,6 @@ export interface PipelineDeps {
   version: string;
   env: () => NodeJS.ProcessEnv;
   claudePath: () => string | null;
-  settings: () => Settings;
 }
 
 interface HeronMeta {
@@ -145,7 +143,7 @@ export class Pipeline {
       timeoutMin: profile.timeoutMin,
       maxTurns: profile.maxTurns,
       trustRepoClaudeConfig: repo.trustRepoClaudeConfig,
-      dryRun: this.d.settings().dryRun,
+      dryRun: repo.dryRun,
     };
   }
 
