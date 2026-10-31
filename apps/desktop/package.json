@@ -30,6 +30,7 @@
     "@heron/git": "workspace:*",
     "@heron/github": "workspace:*",
     "@heron/harness": "workspace:*",
+    "@heron/platform": "workspace:*",
     "@heron/rpc": "workspace:*",
     "@orpc/tanstack-query": "^1.16.1",
     "@tailwindcss/vite": "^4.3.3",
