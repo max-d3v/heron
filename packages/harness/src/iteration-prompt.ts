@@ -1,11 +1,11 @@
-import { COMMIT_TYPES, ITERATION_INSTRUCTIONS, type FeedbackKind } from "@heron/core";
+import { COMMIT_TYPES, ITERATION_INSTRUCTIONS, type CwdKind, type FeedbackKind } from "@heron/core";
 import type { PrContext } from "./prompt.ts";
 
 // What Heron adds to an iteration's agent run (§15.5) and the triage call (§15.4).
 
 export interface IterationWorkspace {
   /** `worktree`: Heron's iteration worktree of the PR head. `local`: the user's own checkout. */
-  kind: "worktree" | "local";
+  kind: CwdKind;
   /** Folder with pr.json, pr.diff, pr-comments.json and feedback.json, outside the checkout. */
   contextDir: string;
   /** The repo's setup command, when it ran before the agent (worktree mode). */

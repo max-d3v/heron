@@ -12,7 +12,6 @@ import {
   iterationEligibility,
   needsSlot,
   occupiesPr,
-  retryDelay,
   type Feedback,
   type Iteration,
   type PauseReason,
@@ -30,14 +29,12 @@ import { groupKey } from "./feedback.ts";
 import { StaleError, type IterationPipeline } from "./iteration-pipeline.ts";
 import type { Paths } from "./paths.ts";
 import { PrClosedError } from "./pipeline.ts";
-import { formatDelay, killOrphan } from "./scheduler.ts";
+import { killOrphan, planRetry, type QueuePauses } from "./scheduler.ts";
 import type { Store } from "./store.ts";
 
 /** What iterations share with the review queue: its pauses and its parallel-run slots. */
-export interface QueueControl {
+export interface QueueControl extends QueuePauses {
   pauseReasons(): PauseReason[];
-  pauseForLimit(until: number, message: string): void;
-  pauseForAuth(message: string): void;
   /** Review runs holding a parallel-run slot. */
   reviewRuns(): number;
 }
@@ -623,30 +620,13 @@ export class IterationScheduler {
     // Quit leaves it in triaging; `recover` sends it back to debouncing on the next launch.
     if (err instanceof RunAbortedError || signal.aborted) return;
     const message = errorMessage(err);
-    const cls = classifyError(err);
-    if (cls === "limit") {
-      const until = err instanceof LimitError ? err.resetAt : Date.now() + 15 * 60_000;
-      this.d.queue.pauseForLimit(until, message);
-      store.transitionIteration(it, "debouncing", { patch: { runAfter: until, lastError: message }, message: `Waiting for the limit to reset (${message})` });
-      return;
-    }
-    if (cls === "auth") {
-      this.d.queue.pauseForAuth(message);
-      store.transitionIteration(it, "debouncing", { patch: { runAfter: Date.now(), lastError: message }, message: `Waiting for login (${message})` });
-      return;
-    }
-    if (cls === "transient") {
-      const delay = retryDelay(it.attempt);
-      if (delay !== null) {
-        const moved = store.transitionIteration(it, "debouncing", {
-          patch: { runAfter: Date.now() + delay, attempt: it.attempt + 1, lastError: message },
-          message: `Triage retries in ${formatDelay(delay)}: ${message}`,
-        });
-        if (moved) store.activity({ prId: it.prId, reviewId: null, iterationId: it.id, kind: "iteration.retry", message: `Attempt ${it.attempt + 2} in ${formatDelay(delay)}` });
-        return;
-      }
-    }
-    this.fail(it, message, err);
+    const retry = planRetry(err, it.attempt, this.d.queue, "Triage retries");
+    if (retry === "fail") return this.fail(it, message, err);
+    const moved = store.transitionIteration(it, "debouncing", {
+      patch: { runAfter: retry.runAfter, attempt: retry.attempt, lastError: message },
+      message: retry.message,
+    });
+    if (moved && retry.activity) store.activity({ prId: it.prId, reviewId: null, iterationId: it.id, kind: "iteration.retry", message: retry.activity });
   }
 
   // ── agent runs ────────────────────────────────────────────────────────────
@@ -705,30 +685,13 @@ export class IterationScheduler {
 
     const message = errorMessage(err);
     const step = isIterationInFlight(it.state) ? it.state : "preparing";
-    const cls = classifyError(err);
-    if (cls === "limit") {
-      const until = err instanceof LimitError ? err.resetAt : Date.now() + 15 * 60_000;
-      this.d.queue.pauseForLimit(until, message);
-      store.transitionIteration(it, "queued", { patch: { retryStep: step, runAfter: until, lastError: message }, message: `Waiting for the limit to reset (${message})` });
-      return;
-    }
-    if (cls === "auth") {
-      this.d.queue.pauseForAuth(message);
-      store.transitionIteration(it, "queued", { patch: { retryStep: step, runAfter: Date.now(), lastError: message }, message: `Waiting for login (${message})` });
-      return;
-    }
-    if (cls === "transient") {
-      const delay = retryDelay(it.attempt);
-      if (delay !== null) {
-        const moved = store.transitionIteration(it, "queued", {
-          patch: { retryStep: step, runAfter: Date.now() + delay, attempt: it.attempt + 1, lastError: message },
-          message: `Retrying in ${formatDelay(delay)}: ${message}`,
-        });
-        if (moved) store.activity({ prId: it.prId, reviewId: null, iterationId, kind: "iteration.retry", message: `Attempt ${it.attempt + 2} in ${formatDelay(delay)}` });
-        return;
-      }
-    }
-    this.fail(it, message, err);
+    const retry = planRetry(err, it.attempt, this.d.queue);
+    if (retry === "fail") return this.fail(it, message, err);
+    const moved = store.transitionIteration(it, "queued", {
+      patch: { retryStep: step, runAfter: retry.runAfter, attempt: retry.attempt, lastError: message },
+      message: retry.message,
+    });
+    if (moved && retry.activity) store.activity({ prId: it.prId, reviewId: null, iterationId, kind: "iteration.retry", message: retry.activity });
   }
 
   private fail(it: Iteration, message: string, err: unknown): void {

@@ -28,7 +28,7 @@ import type {
   ReviewDetail,
   RunSummary,
 } from "@heron/rpc";
-import { groupFeedback, groupKey } from "./feedback.ts";
+import { groupFeedback } from "./feedback.ts";
 
 const CLOSED_PR_WINDOW_MS = 14 * 24 * 3600_000;
 
@@ -228,7 +228,7 @@ export function toIterationDetail(db: HeronDb, it: Iteration, repo: Repo): Itera
     localCheckoutFailed: it.state === "failed" && !!it.profileSnapshot?.localCheckoutPath && repo.useLocalCheckout,
     items: (it.items ?? []).map((item) => {
       const out = it.output?.items.find((o) => o.number === item.number);
-      const thread = all.filter((f) => groupKey(f) === groupKey(item)).sort((a, b) => a.createdAt - b.createdAt);
+      const thread = all.filter((f) => f.kind === item.kind && f.threadRootId === item.threadRootId).sort((a, b) => a.createdAt - b.createdAt);
       return {
         number: item.number,
         kind: item.kind,

@@ -23,7 +23,7 @@ export interface FeedbackGroup {
   createdAt: number;
 }
 
-export const groupKey = (f: Pick<Feedback, "kind" | "threadRootId">) => `${f.kind}:${f.threadRootId}`;
+export const groupKey = (f: Feedback) => `${f.kind}:${f.threadRootId}`;
 
 /** Group `rows` by thread; `all` (the PR's every feedback row) supplies each thread's context. */
 export function groupFeedback(rows: Feedback[], all: Feedback[]): FeedbackGroup[] {

@@ -451,39 +451,14 @@ export class Scheduler {
 
     const message = errorMessage(err);
     const step = isInFlight(review.state) ? review.state : "preparing";
-    const cls = classifyError(err);
-
-    if (cls === "limit") {
-      const until = err instanceof LimitError ? err.resetAt : Date.now() + 15 * 60_000;
-      this.pauseForLimit(until, message);
-      store.transition(review, "queued", {
-        patch: { retryStep: step, runAfter: until, lastError: message },
-        message: `Waiting for the limit to reset (${message})`,
+    const retry = planRetry(err, review.attempt, this);
+    if (retry !== "fail") {
+      const updated = store.transition(review, "queued", {
+        patch: { retryStep: step, runAfter: retry.runAfter, attempt: retry.attempt, lastError: message },
+        message: retry.message,
       });
+      if (updated && retry.activity) store.activity({ prId: review.prId, reviewId, kind: "review.retry", message: retry.activity });
       return;
-    }
-
-    if (cls === "auth") {
-      this.pauseForAuth(message);
-      store.transition(review, "queued", {
-        patch: { retryStep: step, runAfter: Date.now(), lastError: message },
-        message: `Waiting for login (${message})`,
-      });
-      return;
-    }
-
-    if (cls === "transient") {
-      const delay = retryDelay(review.attempt);
-      if (delay !== null) {
-        const updated = store.transition(review, "queued", {
-          patch: { retryStep: step, runAfter: Date.now() + delay, attempt: review.attempt + 1, lastError: message },
-          message: `Retrying in ${formatDelay(delay)}: ${message}`,
-        });
-        if (updated) {
-          store.activity({ prId: review.prId, reviewId, kind: "review.retry", message: `Attempt ${review.attempt + 2} in ${formatDelay(delay)}` });
-        }
-        return;
-      }
     }
 
     const failed = store.transition(review, "failed", {
@@ -502,6 +477,49 @@ export class Scheduler {
       }
     }
   }
+}
+
+/** Where a run that failed is paused when it hits a usage limit or needs a login. */
+export interface QueuePauses {
+  pauseForLimit(until: number, message: string): void;
+  pauseForAuth(message: string): void;
+}
+
+/** When and how a failed run (review, iteration or triage) goes back in the queue. */
+export interface RetryPlan {
+  runAfter: number;
+  attempt: number;
+  /** For the state change. */
+  message: string;
+  /** For a retry after a transient error: the activity line announcing the next attempt. */
+  activity: string | null;
+}
+
+/**
+ * The retry policy shared by every run. A limit pauses the queue until it resets (15 min when
+ * unknown), an auth problem until the user logs in, a transient error backs off by `retryDelay`;
+ * anything else, or a transient error past the last retry, is `"fail"`.
+ */
+export function planRetry(err: unknown, attempt: number, queue: QueuePauses, retrying = "Retrying"): RetryPlan | "fail" {
+  const message = errorMessage(err);
+  const cls = classifyError(err);
+  if (cls === "limit") {
+    const until = err instanceof LimitError ? err.resetAt : Date.now() + 15 * 60_000;
+    queue.pauseForLimit(until, message);
+    return { runAfter: until, attempt, message: `Waiting for the limit to reset (${message})`, activity: null };
+  }
+  if (cls === "auth") {
+    queue.pauseForAuth(message);
+    return { runAfter: Date.now(), attempt, message: `Waiting for login (${message})`, activity: null };
+  }
+  const delay = cls === "transient" ? retryDelay(attempt) : null;
+  if (delay === null) return "fail";
+  return {
+    runAfter: Date.now() + delay,
+    attempt: attempt + 1,
+    message: `${retrying} in ${formatDelay(delay)}: ${message}`,
+    activity: `Attempt ${attempt + 2} in ${formatDelay(delay)}`,
+  };
 }
 
 export function formatDelay(ms: number): string {

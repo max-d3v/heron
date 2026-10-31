@@ -16,8 +16,10 @@ import {
   parseIterationOutput,
   type Feedback,
   type Iteration,
+  type CwdKind,
   type IterationItem,
   type IterationOutput,
+  type IterationOutputItem,
   type IterationSnapshot,
   type IterationState,
   type Pr,
@@ -130,12 +132,13 @@ export class IterationPipeline {
     }
     if (!it) return null;
 
+    const snap = it.profileSnapshot ?? this.snapshot(it);
     if (!it.profileSnapshot) {
-      it = store.saveIteration(it, { profileSnapshot: this.snapshot(it) });
+      it = store.saveIteration(it, { profileSnapshot: snap });
       if (!it) return null;
     }
     // Setup time counts toward the timeout.
-    const deadline = Date.now() + it.profileSnapshot!.timeoutMin * 60_000;
+    const deadline = Date.now() + snap.timeoutMin * 60_000;
 
     while (it && isIterationInFlight(it.state)) {
       if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason));
@@ -143,19 +146,19 @@ export class IterationPipeline {
       let step: { patch: IterationPatch; to: IterationState };
       switch (it.state) {
         case "preparing":
-          step = { patch: await this.prepare(it, pr, repo, signal, deadline), to: "running" };
+          step = { patch: await this.prepare(it, snap, pr, repo, signal, deadline), to: "running" };
           break;
         case "running":
-          step = { patch: await this.run(it, pr, repo, signal, deadline), to: "committing" };
+          step = { patch: await this.run(it, snap, pr, repo, signal, deadline), to: "committing" };
           break;
         case "committing":
-          step = await this.commit(it, pr, repo);
+          step = await this.commit(it, snap, pr, repo);
           break;
         case "pushing":
           step = { patch: await this.push(it, pr, repo), to: "replying" };
           break;
         case "replying":
-          step = { patch: await this.reply(it, pr, repo), to: it.commitSha ? "pushed" : "no_changes" };
+          step = { patch: await this.reply(it, snap, pr, repo), to: it.commitSha ? "pushed" : "no_changes" };
           break;
       }
       const settled = step.to === "ready" || step.to === "no_changes" || step.to === "pushed";
@@ -200,16 +203,16 @@ export class IterationPipeline {
     };
   }
 
-  private cwd(it: Iteration, pr: Pr, repo: Repo): string {
-    return it.cwdKind === "local" ? it.profileSnapshot!.localCheckoutPath! : this.d.paths.iterationWorktreeDir(repo.owner, repo.name, pr.number);
+  /** The snapshot's local checkout when it has one (`prepare` then sets `cwdKind` to `local`), else Heron's worktree. */
+  private cwd(snap: IterationSnapshot, pr: Pr, repo: Repo): string {
+    return snap.localCheckoutPath ?? this.d.paths.iterationWorktreeDir(repo.owner, repo.name, pr.number);
   }
 
   // ── preparing ─────────────────────────────────────────────────────────────
 
-  private async prepare(it: Iteration, pr: Pr, repo: Repo, signal: AbortSignal, deadline: number): Promise<IterationPatch> {
+  private async prepare(it: Iteration, snap: IterationSnapshot, pr: Pr, repo: Repo, signal: AbortSignal, deadline: number): Promise<IterationPatch> {
     const { db, store, github, git, paths } = this.d;
     const { owner, name } = repo;
-    const snap = it.profileSnapshot!;
     const detail = await github.getPull(owner, name, pr.number);
     if (detail.state !== "open") throw new PrClosedError(detail.state);
     const eligible = iterationEligibility(repo, { ...pr, author: detail.author, headRepo: detail.headRepo }, this.d.viewerLogin());
@@ -225,8 +228,10 @@ export class IterationPipeline {
     if (!(await git.ensureCommit(clone, headSha))) throw new PermanentError(`Commit ${short(headSha)} is no longer on GitHub`);
     signal.throwIfAborted();
 
-    let cwdKind: "worktree" | "local";
+    let cwdKind: CwdKind;
     if (snap.localCheckoutPath) {
+      // An earlier attempt ran the agent here (a retry, or a restart after a crash): its edits are left over.
+      if (it.cwdKind === "local" && it.headSha) await this.setAsideLeftovers(it, snap.localCheckoutPath, detail.headRef, it.headSha);
       await this.checkLocalCheckout(snap.localCheckoutPath, detail.headRef, headSha);
       cwdKind = "local";
     } else {
@@ -331,11 +336,39 @@ export class IterationPipeline {
     }
   }
 
+  /**
+   * Put the previous attempt's edits in a stash, so the run starts again from a clean checkout at
+   * the head. The checkout was clean when that attempt started, so everything uncommitted is the agent's.
+   */
+  private async setAsideLeftovers(it: Iteration, dir: string, branch: string, headSha: string): Promise<void> {
+    const { git, store } = this.d;
+    // Not the checkout the agent ran in any more: `checkLocalCheckout` says why.
+    if (!existsSync(dir) || (await git.currentBranch(dir).catch(() => null)) !== branch) return;
+    try {
+      const head = await git.headSha(dir);
+      // Commits the agent made anyway are undone, their changes kept for the stash.
+      if (head && head !== headSha && (await git.isAncestor(dir, headSha, head))) await git.resetSoft(dir, headSha);
+      if (!(await git.status(dir)).trim()) return;
+      await git.stash(dir, `Heron iteration ${it.id}: the agent's edits from an unfinished attempt`);
+    } catch (err) {
+      throw new PermanentError(
+        `The local checkout still has the agent's edits from the last attempt, and Heron couldn't stash them (${errorMessage(err)}). Stash or discard them, then Re-run.`,
+        { cause: err },
+      );
+    }
+    store.activity({
+      prId: it.prId,
+      reviewId: null,
+      iterationId: it.id,
+      kind: "iteration.state",
+      message: "Stashed the agent's edits from the last attempt in the local checkout (see `git stash list`)",
+    });
+  }
+
   // ── running ───────────────────────────────────────────────────────────────
 
-  private async run(it: Iteration, pr: Pr, repo: Repo, signal: AbortSignal, deadline: number): Promise<IterationPatch> {
+  private async run(it: Iteration, snap: IterationSnapshot, pr: Pr, repo: Repo, signal: AbortSignal, deadline: number): Promise<IterationPatch> {
     const { db, store, paths } = this.d;
-    const snap = it.profileSnapshot!;
     const dir = paths.iterationDir(it.id);
     const prompt = await readFile(join(dir, "prompt.md"), "utf8");
     const timeoutMs = deadline - Date.now();
@@ -347,7 +380,7 @@ export class IterationPipeline {
     try {
       const result = await runIteration({
         claudePath,
-        cwd: this.cwd(it, pr, repo),
+        cwd: this.cwd(snap, pr, repo),
         baseEnv: this.d.env(),
         ghConfigDir: paths.ghConfig,
         pluginDir: paths.plugin,
@@ -378,12 +411,11 @@ export class IterationPipeline {
 
   // ── committing ────────────────────────────────────────────────────────────
 
-  private async commit(it: Iteration, pr: Pr, repo: Repo): Promise<{ patch: IterationPatch; to: IterationState }> {
+  private async commit(it: Iteration, snap: IterationSnapshot, pr: Pr, repo: Repo): Promise<{ patch: IterationPatch; to: IterationState }> {
     const { git, paths } = this.d;
-    const snap = it.profileSnapshot!;
     const output = it.output;
     if (!output || !it.headSha) throw new PermanentError("Nothing to commit (the agent's output is missing)");
-    const cwd = this.cwd(it, pr, repo);
+    const cwd = this.cwd(snap, pr, repo);
     const trailer = iterationTrailer(it.id);
 
     // A commit made before a crash is found again by its trailer.
@@ -397,7 +429,7 @@ export class IterationPipeline {
       }
     }
     // No commit, but the threads the agent left alone still get their reason.
-    if (!sha) return { patch: {}, to: this.replyTargets(it).length > 0 ? "replying" : "no_changes" };
+    if (!sha) return { patch: {}, to: this.replyTargets(it, snap).length > 0 ? "replying" : "no_changes" };
 
     // Kept under a ref in Heron's clone, so resetting the checkout never loses it (and the push goes from there).
     const clone = paths.cloneDir(repo.owner, repo.name);
@@ -438,9 +470,9 @@ export class IterationPipeline {
    * "Not addressed — <note>" on each one the agent left alone, which stays open for the reviewer.
    * Other notes stay in the app.
    */
-  private async reply(it: Iteration, pr: Pr, repo: Repo): Promise<IterationPatch> {
+  private async reply(it: Iteration, snap: IterationSnapshot, pr: Pr, repo: Repo): Promise<IterationPatch> {
     const { github, store } = this.d;
-    const targets = this.replyTargets(it);
+    const targets = this.replyTargets(it, snap);
     if (targets.length === 0) return {};
 
     // The marker makes a retry skip the threads it already answered.
@@ -464,8 +496,8 @@ export class IterationPipeline {
   }
 
   /** The inline threads to reply on. Addressed ones need the commit; an item the agent didn't report on gets nothing. */
-  private replyTargets(it: Iteration): ReplyTarget[] {
-    if (!it.profileSnapshot!.reply || this.d.settings().dryRun || !it.output) return [];
+  private replyTargets(it: Iteration, snap: IterationSnapshot): ReplyTarget[] {
+    if (!snap.reply || this.d.settings().dryRun || !it.output) return [];
     return it.output.items.flatMap<ReplyTarget>((o) => {
       const item = it.items?.find((i) => i.number === o.number);
       if (item?.kind !== "inline") return [];
@@ -528,7 +560,7 @@ const UNREPORTED_NOTE = "The agent didn't report on this item.";
 
 /** One entry per item, in order: unknown numbers dropped, duplicates collapsed, missing ones reported as not addressed. */
 function normalizeOutput(output: IterationOutput, items: IterationItem[]): IterationOutput {
-  const byNumber = new Map<number, IterationOutput["items"][number]>();
+  const byNumber = new Map<number, IterationOutputItem>();
   for (const o of output.items) if (!byNumber.has(o.number)) byNumber.set(o.number, o);
   return {
     commitTitle: output.commitTitle,

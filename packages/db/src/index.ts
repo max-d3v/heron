@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS,
   type Activity,
   type ActivityKind,
+  type CwdKind,
   type EffortLevel,
   type Feedback,
   type FeedbackKind,
@@ -181,7 +182,7 @@ function toIteration(r: Row): Iteration {
     profileSnapshot: json<IterationSnapshot>(r.profile_snapshot_json),
     resolvedModel: str(r.resolved_model),
     transcriptPath: str(r.transcript_path),
-    cwdKind: (r.cwd_kind as Iteration["cwdKind"]) ?? null,
+    cwdKind: (r.cwd_kind as CwdKind | null) ?? null,
     items: json<IterationItem[]>(r.items_json),
     output: json<IterationOutput>(r.output_json),
     rawOutput: str(r.raw_output),
@@ -289,7 +290,7 @@ export interface IterationPatch {
   profileSnapshot?: IterationSnapshot | null;
   resolvedModel?: string | null;
   transcriptPath?: string | null;
-  cwdKind?: Iteration["cwdKind"];
+  cwdKind?: CwdKind | null;
   items?: IterationItem[] | null;
   output?: IterationOutput | null;
   rawOutput?: string | null;

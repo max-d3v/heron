@@ -262,7 +262,7 @@ export class GitClient {
       await this.run(["push", `https://github.com/${owner}/${name}.git`, `${sha}:refs/heads/${branch}`], { cwd: cloneDir, auth: true });
       return { ok: true };
     } catch (err) {
-      const cause = err instanceof GitError ? err : (err as { cause?: unknown }).cause;
+      const cause = err instanceof GitError ? err : err instanceof Error ? err.cause : undefined;
       const stderr = cause instanceof GitError ? cause.stderr : "";
       const message = stderr.trim().split("\n").slice(-4).join("\n") || (err instanceof Error ? err.message : String(err));
       if (/\[rejected\]|non-fast-forward|fetch first|stale info/i.test(stderr)) return { ok: false, reason: "rejected", message };
@@ -271,6 +271,11 @@ export class GitClient {
       }
       throw err;
     }
+  }
+
+  /** Put every uncommitted change, untracked files included, in a new stash; the checkout is then clean. */
+  async stash(dir: string, message: string): Promise<void> {
+    await this.run(["stash", "push", "--include-untracked", "-m", message], { cwd: dir });
   }
 
   /** Move the checked-out branch back to `sha`; `--keep` refuses rather than lose local edits. */

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   ACTIVITY_KINDS,
   AGENT_STEP_KINDS,
+  CWD_KINDS,
   EFFORT_LEVELS,
   FEEDBACK_KINDS,
   ITEM_STATUSES,
@@ -137,7 +138,7 @@ export const iterationSummary = z.object({
   model: z.string().nullable(),
   effort: effort.nullable(),
   dryRun: z.boolean(),
-  cwdKind: z.enum(["worktree", "local"]).nullable(),
+  cwdKind: z.enum(CWD_KINDS).nullable(),
   attempt: z.number(),
   runAfter: z.number().nullable(),
   lastError: z.string().nullable(),

@@ -293,10 +293,20 @@ export interface IterationItem {
 export const ITEM_STATUSES = ["addressed", "not_addressed"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
+export interface IterationOutputItem {
+  number: number;
+  status: ItemStatus;
+  note: string;
+}
+
 export interface IterationOutput {
   commitTitle: string;
-  items: Array<{ number: number; status: ItemStatus; note: string }>;
+  items: IterationOutputItem[];
 }
+
+/** Where an iteration's agent runs: Heron's worktree of the PR head, or the user's own checkout. */
+export const CWD_KINDS = ["worktree", "local"] as const;
+export type CwdKind = (typeof CWD_KINDS)[number];
 
 export interface Iteration {
   id: number;
@@ -315,7 +325,7 @@ export interface Iteration {
   profileSnapshot: IterationSnapshot | null;
   resolvedModel: string | null;
   transcriptPath: string | null;
-  cwdKind: "worktree" | "local" | null;
+  cwdKind: CwdKind | null;
   items: IterationItem[] | null;
   output: IterationOutput | null;
   rawOutput: string | null;
