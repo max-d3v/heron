@@ -353,7 +353,7 @@ export class IterationPipeline {
       // `checkLocalCheckout`'s "Pull (or push)" would get them pushed to the PR.
       if (head && (await git.isAncestor(dir, headSha, head).catch(() => false))) {
         throw new PermanentError(
-          `The local checkout has commits on top of the PR head ${short(headSha)}. They may be the agent's from the last attempt. Check them, and \`git reset --soft ${short(headSha)}\` if they are, then Re-run.`,
+          `The local checkout has commits on top of the PR head ${short(headSha)}. They may be the agent's from the last attempt. Check them, and if they are, take them off with \`git reset --soft ${short(headSha)}\` and stash (or discard) the changes, then Re-run.`,
         );
       }
       return;
