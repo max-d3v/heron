@@ -231,7 +231,7 @@ export class IterationPipeline {
     let cwdKind: CwdKind;
     if (snap.localCheckoutPath) {
       // An earlier attempt ran the agent here (a retry, or a restart after a crash): its edits are left over.
-      if (it.cwdKind === "local" && it.headSha) await this.setAsideLeftovers(it, snap.localCheckoutPath, detail.headRef, it.headSha);
+      if (it.cwdKind === "local" && it.headSha) await this.setAsideLeftovers(it, snap.localCheckoutPath, detail.headRef, headSha);
       await this.checkLocalCheckout(snap.localCheckoutPath, detail.headRef, headSha);
       cwdKind = "local";
     } else {
@@ -338,16 +338,17 @@ export class IterationPipeline {
 
   /**
    * Put the previous attempt's edits in a stash, so the run starts again from a clean checkout at
-   * the head. The checkout was clean when that attempt started, so everything uncommitted is the agent's.
+   * the head (`prepare` has checked it's still the head that attempt ran on). The checkout was clean
+   * at the head when that attempt started, so while it's still there everything uncommitted is the agent's.
    */
   private async setAsideLeftovers(it: Iteration, dir: string, branch: string, headSha: string): Promise<void> {
     const { git, store } = this.d;
     // Not the checkout the agent ran in any more: `checkLocalCheckout` says why.
     if (!existsSync(dir) || (await git.currentBranch(dir).catch(() => null)) !== branch) return;
+    // HEAD moved: the user may have committed or pulled during a long pause, and commits can't be told
+    // apart from any the agent made. Nothing is touched; `checkLocalCheckout` asks the user to sort it out.
+    if ((await git.headSha(dir).catch(() => null)) !== headSha) return;
     try {
-      const head = await git.headSha(dir);
-      // Commits the agent made anyway are undone, their changes kept for the stash.
-      if (head && head !== headSha && (await git.isAncestor(dir, headSha, head))) await git.resetSoft(dir, headSha);
       if (!(await git.status(dir)).trim()) return;
       await git.stash(dir, `Heron iteration ${it.id}: the agent's edits from an unfinished attempt`);
     } catch (err) {
