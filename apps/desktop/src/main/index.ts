@@ -16,6 +16,7 @@ import { ensureLayout, makePaths } from "./paths.ts";
 import { IterationPipeline } from "./iteration-pipeline.ts";
 import { IterationScheduler } from "./iterations.ts";
 import { Pipeline } from "./pipeline.ts";
+import { dataRoot } from "./platform.ts";
 import { Poller } from "./poller.ts";
 import { DEFAULT_PROMPT } from "./prompts.ts";
 import { createRouter } from "./router.ts";
@@ -27,7 +28,7 @@ import { createMainWindow, installCsp } from "./window.ts";
 
 app.setName("Heron");
 // HERON_DATA_DIR keeps a development copy apart from the real data.
-app.setPath("userData", process.env.HERON_DATA_DIR ?? join(app.getPath("appData"), "Heron"));
+app.setPath("userData", process.env.HERON_DATA_DIR ?? dataRoot());
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

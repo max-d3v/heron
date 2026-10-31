@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { AuthError, PermanentError, TransientError } from "@heron/core";
 
@@ -21,6 +21,18 @@ interface RunOptions {
 }
 
 const MAX_BUFFER = 512 * 1024 * 1024;
+
+/**
+ * Set on every clone Heron makes, and on older ones at their next `ensureClone` (§17.7). Both are
+ * no-ops on macOS. Long paths: worktrees start deep, and a setup command's node_modules can pass
+ * Windows' 260 characters. No autocrlf: Git for Windows installs with it on, which would check out
+ * CRLF and let iteration commits change line endings; off, worktrees match the repo byte for byte
+ * (`.gitattributes` still applies).
+ */
+const CLONE_CONFIG: Array<[string, string]> = [
+  ["core.longpaths", "true"],
+  ["core.autocrlf", "false"],
+];
 
 export class GitError extends Error {
   constructor(
@@ -95,15 +107,24 @@ export class GitClient {
     return (await this.run(["--version"])).stdout.trim();
   }
 
-  /** Make sure the bare partial clone exists. */
+  /** Make sure the bare partial clone exists, with Heron's config (worktrees share it). */
   async ensureClone(cloneDir: string, owner: string, name: string): Promise<void> {
-    if (existsSync(join(cloneDir, "HEAD"))) return;
-    await rm(cloneDir, { recursive: true, force: true });
-    await mkdir(dirname(cloneDir), { recursive: true });
-    await this.run(
-      ["clone", "--bare", "--filter=blob:none", "--no-tags", `https://github.com/${owner}/${name}.git`, cloneDir],
-      { auth: true },
-    );
+    if (!existsSync(join(cloneDir, "HEAD"))) {
+      await rm(cloneDir, { recursive: true, force: true });
+      await mkdir(dirname(cloneDir), { recursive: true });
+      await this.run(
+        ["clone", "--bare", "--filter=blob:none", "--no-tags", `https://github.com/${owner}/${name}.git`, cloneDir],
+        { auth: true },
+      );
+    }
+    // One read in the usual case; a write only for a new clone or one made before this config.
+    const { stdout } = await this.run(["config", "--local", "--get-regexp", "^core\\.(longpaths|autocrlf)$"], { cwd: cloneDir, okCodes: [1] });
+    const current = new Map(stdout.split("\n").map((line) => line.split(" ", 2) as [string, string]));
+    for (const [key, value] of CLONE_CONFIG) {
+      if (current.get(key) === value) continue;
+      // Two runs on one repo can both get here; git's config lock lets one write, and both write the same.
+      await this.run(["config", key, value], { cwd: cloneDir }).catch(() => undefined);
+    }
   }
 
   /** Fetch the PR head and its base branch into heron-owned refs. */
@@ -299,17 +320,3 @@ export class GitClient {
   }
 }
 
-/** Disk usage of a folder in bytes (`du -sk`), 0 when it doesn't exist. */
-export async function diskUsage(path: string): Promise<number> {
-  try {
-    await stat(path);
-  } catch {
-    return 0;
-  }
-  return new Promise((resolve) => {
-    execFile("/usr/bin/du", ["-sk", path], (err, stdout) => {
-      if (err) return resolve(0);
-      resolve(Number(stdout.split(/\s+/)[0] ?? 0) * 1024);
-    });
-  });
-}

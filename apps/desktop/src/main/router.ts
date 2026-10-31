@@ -1,13 +1,14 @@
 import { existsSync, statSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { ORPCError, implement } from "@orpc/server";
 import { parseDiff, type Settings } from "@heron/core";
 import type { HeronDb } from "@heron/db";
-import { diskUsage, type GitClient } from "@heron/git";
+import type { GitClient } from "@heron/git";
 import type { GitHubClient, PrFile } from "@heron/github";
 import { ITERATION_CONTRACT_SUMMARY, OUTPUT_CONTRACT_SUMMARY } from "@heron/harness";
+import { diskUsage } from "@heron/platform";
 import { contract, type AgentStepEvent, type DoctorReport, type ModelOption, type SkillDto, type TranscriptEntry } from "@heron/rpc";
 import type { Bus } from "./bus.ts";
 import { isCheckoutOf } from "./checkouts.ts";
@@ -39,6 +40,12 @@ export interface Services {
   pickFolder: (o: { title: string; message: string; defaultPath: string }) => Promise<string | null>;
   openExternal: (url: string) => Promise<void>;
   reveal: (path: string) => void;
+}
+
+/** `p` is `root` or inside it. `path.relative` compares case-insensitively on Windows, as its file system does. */
+function isInside(root: string, p: string): boolean {
+  const rel = relative(root, p);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 /** Errors thrown by services carry a message meant for the user; don't let oRPC mask it. */
@@ -149,7 +156,7 @@ export function createRouter(s: Services) {
       revealPath: os.app.revealPath.handler(({ input }) => {
         const p = resolve(input.path);
         const allowed = [s.paths.root, join(homedir(), ".claude")];
-        if (!isAbsolute(input.path) || !allowed.some((root) => p.startsWith(root))) {
+        if (!isAbsolute(input.path) || !allowed.some((root) => isInside(root, p))) {
           throw new ORPCError("BAD_REQUEST", { message: "Can only reveal Heron's own files" });
         }
         s.reveal(p);
@@ -190,7 +197,7 @@ export function createRouter(s: Services) {
         if (patch.setupCommand !== undefined) patch.setupCommand = patch.setupCommand || null;
         if (patch.localCheckoutPath !== undefined) patch.localCheckoutPath = patch.localCheckoutPath || null;
         if (patch.localCheckoutPath === null) patch.useLocalCheckout = false;
-        if (patch.localCheckoutPath) patch.localCheckoutPath = resolve(patch.localCheckoutPath.replace(/^~(?=$|\/)/, homedir()));
+        if (patch.localCheckoutPath) patch.localCheckoutPath = resolve(patch.localCheckoutPath.replace(/^~(?=$|[\\/])/, homedir()));
         // The folder in use must be a clone of this repo, so the agent never works in the wrong one.
         const useLocal = patch.useLocalCheckout ?? current.useLocalCheckout;
         const folder = patch.localCheckoutPath !== undefined ? patch.localCheckoutPath : current.localCheckoutPath;
