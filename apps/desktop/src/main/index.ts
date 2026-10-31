@@ -127,6 +127,7 @@ async function main(): Promise<void> {
     version,
     env: () => env,
     claudePath: () => bins.claude,
+    gitPath: () => bins.git,
     viewerLogin: () => viewerLogin,
   });
   // eslint-disable-next-line prefer-const -- assigned after the scheduler, which needs a reference to it

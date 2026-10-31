@@ -6,7 +6,7 @@ import type { Binaries } from "@heron/platform";
 
 function run(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    execFile(bin, args, { env, timeout: 20_000 }, (err, stdout, stderr) => {
+    execFile(bin, args, { env, timeout: 20_000, windowsHide: true }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: String(stdout), stderr: String(stderr) });
     });
   });

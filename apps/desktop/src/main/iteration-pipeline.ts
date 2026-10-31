@@ -52,6 +52,8 @@ export interface IterationPipelineDeps {
   version: string;
   env: () => NodeJS.ProcessEnv;
   claudePath: () => string | null;
+  /** The git on PATH, whose install has Git Bash for the setup command on Windows (§17.6). */
+  gitPath: () => string | null;
   viewerLogin: () => string | null;
 }
 
@@ -245,6 +247,7 @@ export class IterationPipeline {
             command: snap.setupCommand,
             cwd: worktree,
             baseEnv: this.d.env(),
+            gitPath: this.d.gitPath(),
             ghConfigDir: paths.ghConfig,
             clientApp: `heron/${this.d.version}`,
             timeoutMs: deadline - Date.now(),

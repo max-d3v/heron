@@ -1,12 +1,15 @@
 import { spawn } from "node:child_process";
 import { PermanentError } from "@heron/core";
+import { groupSpawnOptions, setupShell, stopTree } from "@heron/platform";
 import { stripEnv } from "./env.ts";
-import { RunAbortedError, killTree } from "./runner.ts";
+import { RunAbortedError } from "./runner.ts";
 
 export interface SetupCommandOptions {
   command: string;
   cwd: string;
   baseEnv: NodeJS.ProcessEnv;
+  /** The git on PATH; on Windows, Git Bash is looked for in the same install (§17.6). */
+  gitPath: string | null;
   ghConfigDir: string;
   clientApp: string;
   timeoutMs: number;
@@ -18,18 +21,19 @@ export interface SetupCommandOptions {
 
 /**
  * Run the repo's setup command (e.g. `pnpm install`) in the iteration worktree before the
- * agent, through the user's shell and with the same token stripping as the agent (§15.5).
- * A non-zero exit fails the iteration with the output's tail; it isn't retried.
+ * agent, through the user's shell (Git Bash on Windows, §17.6) and with the same token
+ * stripping as the agent (§15.5). A non-zero exit fails the iteration with the output's
+ * tail; it isn't retried.
  */
 export async function runSetupCommand(o: SetupCommandOptions): Promise<void> {
   if (o.signal.aborted) throw new RunAbortedError(String(o.signal.reason ?? "aborted"));
-  const shell = o.baseEnv.SHELL || "/bin/zsh";
-  const child = spawn(shell, ["-c", o.command], {
+  const shell = setupShell(o.baseEnv, o.gitPath);
+  const child = spawn(shell.path, [...shell.args, o.command], {
     cwd: o.cwd,
     env: stripEnv(o.baseEnv, o.ghConfigDir, o.clientApp),
     stdio: ["ignore", "pipe", "pipe"],
-    // Own process group, so a timeout or cancel stops everything it started.
-    detached: true,
+    // Stopped as a tree, so a timeout or cancel stops everything it started.
+    ...groupSpawnOptions(),
   });
   if (child.pid) o.onSpawn?.(child.pid);
 
@@ -46,8 +50,7 @@ export async function runSetupCommand(o: SetupCommandOptions): Promise<void> {
   const stop = (why: string) => {
     if (stopped || !child.pid) return;
     stopped = why;
-    killTree(child.pid, "SIGTERM");
-    setTimeout(() => child.pid && killTree(child.pid, "SIGKILL"), 5000).unref();
+    void stopTree(child.pid, 5000);
   };
   const onAbort = () => stop(String(o.signal.reason ?? "aborted"));
   o.signal.addEventListener("abort", onAbort, { once: true });

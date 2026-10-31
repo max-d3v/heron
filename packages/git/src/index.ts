@@ -66,7 +66,8 @@ export class GitClient {
       execFile(
         this.opts.gitPath(),
         args,
-        { cwd: o.cwd, env, maxBuffer: MAX_BUFFER, timeout: o.timeoutMs ?? 10 * 60_000, encoding: "utf8" },
+        // windowsHide: a GUI app's console children would otherwise each flash a window on Windows.
+        { cwd: o.cwd, env, maxBuffer: MAX_BUFFER, timeout: o.timeoutMs ?? 10 * 60_000, encoding: "utf8", windowsHide: true },
         (err, stdout, stderr) => {
           const code = err ? (typeof err.code === "number" ? err.code : null) : 0;
           if (!err || (code !== null && o.okCodes?.includes(code))) {

@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import {
   LimitError,
   OutputParseError,
@@ -25,7 +24,8 @@ import {
 } from "@heron/core";
 import type { HeronDb } from "@heron/db";
 import type { GitClient } from "@heron/git";
-import { RunAbortedError, killTree } from "@heron/harness";
+import { RunAbortedError } from "@heron/harness";
+import { processName, stopTree } from "@heron/platform";
 import type { Bus } from "./bus.ts";
 import type { Paths } from "./paths.ts";
 import { PrClosedError, SupersededError, type Pipeline } from "./pipeline.ts";
@@ -528,11 +528,6 @@ export function formatDelay(ms: number): string {
 
 /** Kill a leftover agent from a previous session, if that pid is still a claude process. */
 export async function killOrphan(pid: number): Promise<void> {
-  const command = await new Promise<string>((resolve) => {
-    execFile("/bin/ps", ["-p", String(pid), "-o", "command="], (err, stdout) => resolve(err ? "" : String(stdout)));
-  });
-  if (!/claude/i.test(command)) return;
-  killTree(pid, "SIGTERM");
-  await new Promise((r) => setTimeout(r, 1500));
-  killTree(pid, "SIGKILL");
+  if (!/claude/i.test((await processName(pid)) ?? "")) return;
+  await stopTree(pid, 1500);
 }
