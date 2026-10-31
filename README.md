@@ -1,16 +1,79 @@
 # Heron
 
-A highly configurable macOS app that reviews GitHub pull requests with your own Claude subscription. See [SPEC.md](SPEC.md) for the design.
+A highly configurable macOS app that reviews GitHub pull requests with your own Claude subscription.
 
-Comes with a SKILL that is highly recommended!
-
-<img width="1228" height="789" alt="Screenshot 2026-10-27 at 8 06 07 PM" src="https://github.com/user-attachments/assets/f3fbfeaa-58da-40da-b12d-9c9c507e4a71" />
+<!-- TODO: demo video. Drag the .mp4 into this file on github.com to get an embed link, then paste it here. -->
 
 
-## Requirements
+https://github.com/user-attachments/assets/6c38713a-68e7-4abe-ae0a-b169fc9feacf
 
-- macOS, Node 22+, pnpm 11
-- `git`, `gh` (logged in: `gh auth login`) and `claude` (logged in: run `claude`, then `/login`)
+
+
+
+
+## How it works
+
+1. Heron checks your chosen repos on GitHub every 10 seconds.
+2. When a pull request is opened or pushed to, Heron checks it out on your Mac and runs Claude Code on it.
+3. Claude's review is posted to the pull request as comments from your GitHub account.
+
+A burst of pushes gets one review: Heron waits 5 seconds after each push before starting. Pushing again during a review cancels it and reviews the new commit.
+
+## Get started
+
+### 1. Install the tools Heron uses
+
+- `git`
+- `gh`, logged in: `gh auth login`
+- `claude`, logged in: run `claude`, then `/login`
+
+On launch, Heron checks all three and shows how to fix anything missing. Reviews don't start until they all pass.
+
+### 2. Build and open the app
+
+Needs Node 22+ and pnpm 11.
+
+```bash
+pnpm install
+pnpm dist           # → apps/desktop/dist/Heron-<version>-arm64.dmg
+```
+
+The build is unsigned, so the first time you open it, right-click the app → Open.
+
+### 3. Add a repository
+
+Settings (⚙ at the bottom of the sidebar) → **Repos** → add one, then choose what to review:
+
+- **All PRs**: every pull request in the repo.
+- **Only mine**: pull requests you opened.
+- **Manual**: only the pull requests you pick.
+
+Drafts are skipped unless you turn them on.
+
+Pull requests that were already open when you added the repo aren't reviewed automatically. Open one and click **Review now**.
+
+### 4. Pick how it reviews (optional)
+
+The **Default** profile is ready to use: the bundled `pr-review` skill on Opus at high effort. To change it, go to Settings → **Profiles**. A profile is either a prompt or a skill, plus the model, effort, timeout and max turns. Each repo can use its own profile.
+
+### 5. Try a dry run (optional)
+
+Settings → **General** → **Dry run** runs reviews but keeps them in the app instead of posting to GitHub. Useful while you tune a profile.
+
+## The review skill
+
+Heron comes with a `pr-review` skill, and the Default profile uses it. **We highly recommend it.** It looks for bugs, questionable decisions and code smells, and leaves one short comment on the lines each problem concerns. You can read and edit it in Settings → **Skills**.
+
+If you write your own skill or prompt, prioritize finding concrete bugs and keep each correction short and to the point. Big reviews tend to be ignored or taken less seriously.
+
+Heron gives every review the PR details, the diff and earlier comments (in a `.heron/` folder in the checkout), and tells Claude how to format the output. `gh` isn't available during a review, so skills shouldn't rely on it.
+
+## Good to know
+
+- Reviews are posted as you, as a plain comment review (never approve or request changes).
+- Claude runs with full tools on the pull request's code on your Mac. Be careful with **All PRs** on repos where people you don't know can open pull requests.
+- Closing the window keeps Heron running in the menu bar. Quitting stops all reviews; they resume on the next launch.
+- Data lives in `~/Library/Application Support/Heron`.
 
 ## Develop
 
@@ -21,32 +84,4 @@ pnpm typecheck      # all packages (turbo)
 pnpm lint
 ```
 
-Data lives in `~/Library/Application Support/Heron` (SQLite DB, clones, worktrees, transcripts, imported skills). Set `HERON_DATA_DIR=/some/dir` to run against a separate copy.
-
-## Build the app
-
-```bash
-pnpm dist           # → apps/desktop/dist/Heron-<version>-arm64.dmg (unsigned)
-```
-
-The first launch of an unsigned build needs right-click → Open.
-
-## Layout
-
-| Path | What |
-| --- | --- |
-| `packages/core` | Domain types, review state machine, retry classes, trigger/scope rules, output schema, diff parsing and line validation |
-| `packages/db` | better-sqlite3 connection, migrations, queries |
-| `packages/github` | Octokit wrapper: `gh` token, ETag polling, conversation fetch, review posting with marker lookup |
-| `packages/git` | Partial bare clones, `pull/N/head` fetch, worktrees, diffs (token passed via env config, never on argv or disk) |
-| `packages/harness` | Agent SDK runner: prompt assembly, env isolation, SDK message → step mapping, login check |
-| `packages/rpc` | oRPC contract (zod) shared by main and renderer |
-| `apps/desktop` | Electron app: scheduler, poller, pipeline, tray, React UI |
-
-## Notes on §14 (checked against Agent SDK 0.3.310 and Claude Code 2.1.308)
-
-- Option names are as in the spec: `pathToClaudeCodeExecutable`, `effort` (`low`…`max`), `outputFormat: { type: "json_schema", schema }`, `plugins: [{ type: "local", path }]`. `permissionMode: "bypassPermissions"` also needs `allowDangerouslySkipPermissions: true`.
-- Plugin manifest: `<plugin>/.claude-plugin/plugin.json` with `{ "name": "heron" }`; skills in `<plugin>/skills/<name>/SKILL.md` are exposed as `/heron:<name>`.
-- oRPC: `RPCHandler` from `@orpc/server/message-port` takes the port in main; `RPCLink` from `@orpc/client/message-port` in the renderer.
-- Usage limits arrive as a `rate_limit_event` whose `rate_limit_info.status` is `"rejected"`, with `resetsAt` in epoch seconds; the turn then ends with an assistant `error: "rate_limit"`.
-- `claude auth status` keeps reporting `loggedIn: true` for a stored login whose session has expired, so the setup check also makes one tiny Haiku request to confirm the login works.
+Set `HERON_DATA_DIR=/some/dir` to run against a separate copy of the data.
