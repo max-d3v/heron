@@ -548,7 +548,7 @@ Heron also runs on Windows, for the same audience as v1 (only me) and with the s
 ### 17.9 Build and distribution
 - **electron-builder `win`:** `nsis`, x64, per-user (`oneClick: true`, `perMachine: false`), so installing needs no admin. Unsigned, so SmartScreen warns on first run (More info → Run anyway). The icon comes from `build/icon.png`, which is above the 256px minimum.
 - **Scripts:** `dist:win` = `electron-vite build && electron-builder --win --x64`. `dist` stays macOS.
-- **Built on Windows only.** With `npmRebuild: false`, the package ships whichever `better-sqlite3` binary is in `node_modules`, so a build on the Mac would ship the macOS one.
+- **Built on Windows only**, by the CI job below. (`better-sqlite3` isn't what ties it to Windows: the version in use (13) carries prebuilds for every platform in its npm package, `win32-x64.node` included, and loads the one for the OS it runs on. With `npmRebuild: false` the package ships them all as they are.)
 - **CI:** `.github/workflows/windows.yml` on `windows-latest`, run manually (`workflow_dispatch`) and on `v*` tags: `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm dist:win`, then upload the installer as a workflow artifact.
 - The `!node_modules/@anthropic-ai/claude-agent-sdk-*/**` exclusion stays; it covers the SDK's Windows binaries too.
 - The README gets the Windows requirements and how to get the installer.
