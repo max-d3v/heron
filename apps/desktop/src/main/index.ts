@@ -7,11 +7,11 @@ import { HeronDb } from "@heron/db";
 import { GitClient } from "@heron/git";
 import { GitHubClient, ghAuthToken } from "@heron/github";
 import { probeClaude } from "@heron/harness";
+import { FALLBACK_GIT, loadEnv, resolveBinaries, type Binaries } from "@heron/platform";
 import type { DoctorReport, ModelOption } from "@heron/rpc";
 import { createBus } from "./bus.ts";
 import { CommitStatusReporter } from "./commit-status.ts";
 import { runDoctor } from "./doctor.ts";
-import { loadShellEnv, resolveBinaries, type Binaries } from "./env.ts";
 import { ensureLayout, makePaths } from "./paths.ts";
 import { IterationPipeline } from "./iteration-pipeline.ts";
 import { IterationScheduler } from "./iterations.ts";
@@ -73,7 +73,7 @@ async function main(): Promise<void> {
 
   const bus = createBus();
   const store = new Store(db, bus);
-  let env: NodeJS.ProcessEnv = await loadShellEnv();
+  let env: NodeJS.ProcessEnv = await loadEnv();
   let bins: Binaries = resolveBinaries(env);
   let doctorReport: DoctorReport | null = null;
   let viewerLogin: string | null = null;
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     userAgent: `heron/${version}`,
   });
   const git = new GitClient({
-    gitPath: () => bins.git ?? "/usr/bin/git",
+    gitPath: () => bins.git ?? FALLBACK_GIT,
     env: () => env,
     getToken: () => (bins.gh ? ghAuthToken(bins.gh, env) : Promise.reject(new AuthError("github", "The GitHub CLI (gh) isn't installed"))),
   });
@@ -177,7 +177,7 @@ async function main(): Promise<void> {
   let doctorRunning: Promise<DoctorReport> | null = null;
   const doctor = (): Promise<DoctorReport> => {
     doctorRunning ??= (async () => {
-      env = await loadShellEnv();
+      env = await loadEnv();
       bins = resolveBinaries(env);
       const report = await runDoctor(bins, env, github, { ghConfigDir: paths.ghConfig, cwd: paths.root });
       doctorReport = report;

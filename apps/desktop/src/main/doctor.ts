@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import type { DoctorCheck, DoctorReport } from "@heron/rpc";
 import type { GitHubClient } from "@heron/github";
 import { verifyClaudeLogin } from "@heron/harness";
-import type { Binaries } from "./env.ts";
+import type { Binaries } from "@heron/platform";
 
 function run(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
