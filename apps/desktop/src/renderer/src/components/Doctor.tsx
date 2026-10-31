@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleCheck, CircleX, Copy, RotateCw } from "lucide-react";
+import { CircleCheck, CircleX, Copy, RotateCw, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../lib/cn";
 import { errorText, orpc } from "../lib/rpc";
 import { Button, ErrorNote, Spinner } from "./ui";
 
-/** git, gh and claude: installed and logged in, each with a fix hint (§12). */
+/** git, gh and claude: installed and logged in, each with a fix hint (§12). Non-blocking checks fail as warnings (§17.8). */
 export function DoctorList({ compact }: { compact?: boolean }) {
   const qc = useQueryClient();
   const report = useQuery(orpc.doctor.get.queryOptions());
@@ -28,7 +28,13 @@ export function DoctorList({ compact }: { compact?: boolean }) {
       ) : (
         data.checks.map((c) => (
           <div key={c.id} className={cn("flex items-start gap-2.5", !compact && "rounded-[10px] bg-content-2 px-3.5 py-2.5 shadow-[0_0_0_0.5px_var(--line)]")}>
-            {c.ok ? <CircleCheck className="mt-[1px] size-4 shrink-0 text-ok" /> : <CircleX className="mt-[1px] size-4 shrink-0 text-bad" />}
+            {c.ok ? (
+              <CircleCheck className="mt-[1px] size-4 shrink-0 text-ok" />
+            ) : c.blocking ? (
+              <CircleX className="mt-[1px] size-4 shrink-0 text-bad" />
+            ) : (
+              <TriangleAlert className="mt-[1px] size-4 shrink-0 text-warn" />
+            )}
             <div className="min-w-0 flex-1">
               <div className="text-[13px] font-medium">{c.label}</div>
               <div className="selectable text-[11.5px] text-fg-2">{c.detail}</div>

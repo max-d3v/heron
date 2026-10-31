@@ -402,14 +402,18 @@ export const queueStatus = z.object({
 });
 
 export const doctorCheck = z.object({
-  id: z.enum(["git", "gh", "claude"]),
+  /** `shell` and `longPaths` are Windows-only rows (§17.8). */
+  id: z.enum(["git", "gh", "claude", "shell", "longPaths"]),
   label: z.string(),
   ok: z.boolean(),
   detail: z.string(),
   fix: z.string().nullable(),
+  /** A failed check holds the queue. A failed non-blocking one is only a warning. */
+  blocking: z.boolean().default(true),
 });
 
 export const doctorReport = z.object({
+  /** Every blocking check passed. */
   ok: z.boolean(),
   checkedAt: z.number(),
   checks: z.array(doctorCheck),
@@ -547,4 +551,6 @@ export type SettingsDto = z.infer<typeof settings>;
 export type QueueStatusDto = z.infer<typeof queueStatus>;
 export type DoctorReport = z.infer<typeof doctorReport>;
 export type DoctorCheck = z.infer<typeof doctorCheck>;
+/** A check as the Doctor builds it: `blocking` may be left out (true). */
+export type DoctorCheckInput = z.input<typeof doctorCheck>;
 export type AppEvent = z.infer<typeof appEvent>;
