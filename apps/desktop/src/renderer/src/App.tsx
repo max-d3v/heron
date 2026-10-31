@@ -8,6 +8,7 @@ import { PrDetail, type Tab } from "./components/PrDetail";
 import { Sidebar } from "./components/Sidebar";
 import { Empty, TooltipProvider } from "./components/ui";
 import { useStream } from "./lib/hooks";
+import { isWindows } from "./lib/platform";
 import { client, orpc } from "./lib/rpc";
 import { isListed } from "./lib/visibility";
 import { Settings, type SettingsTab } from "./settings/Settings";
@@ -48,6 +49,18 @@ export function App() {
   }, [list, listed, selected]);
 
   const openSettings = useCallback((tab: SettingsTab = "repos") => setSettingsTab(tab), []);
+
+  // Windows has no app menu to carry Ctrl+, (§17.8); on macOS ⌘, comes from the menu as an openSettings event.
+  useEffect(() => {
+    if (!isWindows) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "," || !e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
+      e.preventDefault();
+      setSettingsTab((t) => t ?? "repos");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Navigation from the tray, notifications and the app menu; config changes made elsewhere.
   useEffect(() => {

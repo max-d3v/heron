@@ -386,6 +386,7 @@ export const settings = z.object({
   notifyFailed: z.boolean(),
   allScopeWarningAck: z.boolean(),
   manualPause: z.boolean(),
+  trayHintShown: z.boolean(),
   bundledSkills: z.record(z.string(), z.string()),
 });
 
@@ -446,6 +447,8 @@ export const contract = {
     remove: oc.input(byId),
     /** Opens a folder picker for the local checkout; null when cancelled. */
     pickCheckout: oc.input(byId).output(z.string().nullable()),
+    /** The shell setup commands run in (Git Bash or PowerShell on Windows, §17.6). */
+    setupShell: oc.output(z.object({ name: z.string(), path: z.string() })),
   },
   profiles: {
     list: oc.output(z.array(profile)),

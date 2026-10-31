@@ -46,7 +46,7 @@ export function Settings({ tab, onTab, onClose }: { tab: SettingsTab; onTab: (t:
         <button
           onClick={onClose}
           aria-label="Close settings"
-          className="absolute right-4 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-[7px] text-fg-2 hover:bg-hover hover:text-fg"
+          className="absolute right-[calc(1rem_+_var(--titlebar-right))] top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-[7px] text-fg-2 hover:bg-hover hover:text-fg"
         >
           <X className="size-[18px]" />
         </button>

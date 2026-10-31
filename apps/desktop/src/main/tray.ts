@@ -1,6 +1,6 @@
-import { Menu, Tray, nativeImage } from "electron";
-import { join } from "node:path";
+import { Menu, Tray } from "electron";
 import type { QueueStatus } from "@heron/core";
+import { trayBehavior, trayIcons, type TrayIcons } from "./platform.ts";
 
 export interface TrayActions {
   open: () => void;
@@ -11,22 +11,23 @@ export interface TrayActions {
   quit: () => void;
 }
 
-/** Menu bar icon: status (idle / N running / paused + reason), Open, Pause/Resume, Quit (§12). */
+/**
+ * Menu bar icon (the system tray on Windows, §17.8): status (idle / N running / paused + reason),
+ * Open, Pause/Resume, Quit (§12). The counts are in the tooltip too, since only macOS shows a title.
+ */
 export class HeronTray {
   private readonly tray: Tray;
-  private readonly idleIcon: Electron.NativeImage;
-  private readonly pausedIcon: Electron.NativeImage;
+  private readonly icons: TrayIcons;
 
   constructor(
     resourcesDir: string,
     private readonly actions: TrayActions,
   ) {
-    this.idleIcon = nativeImage.createFromPath(join(resourcesDir, "trayTemplate.png"));
-    this.idleIcon.setTemplateImage(true);
-    this.pausedIcon = nativeImage.createFromPath(join(resourcesDir, "trayPausedTemplate.png"));
-    this.pausedIcon.setTemplateImage(true);
-    this.tray = new Tray(this.idleIcon);
+    this.icons = trayIcons(resourcesDir);
+    this.tray = new Tray(this.icons.idle);
     this.tray.setToolTip("Heron");
+    // Windows: a left click opens the window; the menu is on right-click.
+    if (trayBehavior.openOnClick) this.tray.on("click", () => this.actions.open());
     this.update(null);
   }
 
@@ -40,8 +41,8 @@ export class HeronTray {
     else if (status.queued + status.debouncing > 0) line = `Idle · ${status.queued + status.debouncing} waiting`;
     else line = "Idle";
 
-    this.tray.setImage(paused ? this.pausedIcon : this.idleIcon);
-    this.tray.setTitle(running > 0 ? ` ${running}` : "", { fontType: "monospacedDigit" });
+    this.tray.setImage(paused ? this.icons.paused : running > 0 ? this.icons.running : this.icons.idle);
+    if (trayBehavior.showsTitle) this.tray.setTitle(running > 0 ? ` ${running}` : "", { fontType: "monospacedDigit" });
     const ready = status?.readyToPush ?? 0;
     this.tray.setToolTip(`Heron: ${line}${ready > 0 ? ` · ${ready} ready to push` : ""}`);
 
@@ -54,7 +55,7 @@ export class HeronTray {
         { label: "Open Heron", click: this.actions.open },
         manualPaused ? { label: "Resume", click: this.actions.resume } : { label: "Pause All", click: this.actions.pause },
         { type: "separator" },
-        { label: "Quit Heron", accelerator: "Command+Q", click: this.actions.quit },
+        { label: "Quit Heron", accelerator: trayBehavior.quitAccelerator, click: this.actions.quit },
       ]),
     );
   }

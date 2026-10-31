@@ -4,6 +4,7 @@ import { FolderGit2, FolderOpen, Lock, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { ago } from "../lib/format";
+import { isWindows, labels } from "../lib/platform";
 import { errorText, orpc } from "../lib/rpc";
 import { Button, Checkbox, Confirm, Dialog, Empty, ErrorNote, Field, Segmented, Select, Spinner, Switch, TextField } from "../components/ui";
 
@@ -169,7 +170,7 @@ function RepoEditor({ repo, onRemoved }: { repo: RepoDto; onRemoved: () => void 
         <Field
           label="Repo's .claude config"
           align="start"
-          hint="Reviews and iterations also load the repository's own .claude/ settings, CLAUDE.md, skills and hooks. Only turn this on for repositories whose contributors you trust: their hooks run on this Mac."
+          hint={`Reviews and iterations also load the repository's own .claude/ settings, CLAUDE.md, skills and hooks. Only turn this on for repositories whose contributors you trust: their hooks run on ${labels.thisComputer}.`}
         >
           <label className="flex items-center gap-2 pt-1 text-[13px]">
             <Checkbox checked={repo.trustRepoClaudeConfig} onChange={(v) => patch({ trustRepoClaudeConfig: v })} />
@@ -188,7 +189,7 @@ function RepoEditor({ repo, onRemoved }: { repo: RepoDto; onRemoved: () => void 
         open={confirmAll}
         onOpenChange={setConfirmAll}
         title="Review every PR?"
-        message="The agent runs with full tools on other people's code on this Mac. Their code can contain instructions aimed at the agent. Heron hides your GitHub token from it, but this is best-effort isolation."
+        message={`The agent runs with full tools on other people's code on ${labels.thisComputer}. Their code can contain instructions aimed at the agent. Heron hides your GitHub token from it, but this is best-effort isolation.`}
         confirmLabel="Review all PRs"
         onConfirm={() => {
           ackAll.mutate({ allScopeWarningAck: true });
@@ -253,6 +254,8 @@ function IterationFields({
   const iterationProfiles = profiles.filter((p) => p.kind === "iteration");
   const defaultProfile = iterationProfiles.find((p) => p.isDefault);
   const local = repo.useLocalCheckout;
+  // Windows runs it in Git Bash, or PowerShell without it, so say which (§17.6).
+  const shell = useQuery({ ...orpc.repos.setupShell.queryOptions(), enabled: isWindows });
 
   return (
     <>
@@ -319,7 +322,7 @@ function IterationFields({
         hint={
           local
             ? "Not used with a local checkout: your checkout is already set up."
-            : "Runs in full before every agent run, in a fresh checkout (it counts toward the timeout). With it, the agent may run tests and type checks."
+            : `Runs in full before every agent run, in a fresh checkout (it counts toward the timeout). With it, the agent may run tests and type checks.${shell.data ? ` It runs in ${shell.data.name}.` : ""}`
         }
       >
         <div className="flex w-full">

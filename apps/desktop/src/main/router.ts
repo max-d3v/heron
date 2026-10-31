@@ -8,7 +8,7 @@ import type { HeronDb } from "@heron/db";
 import type { GitClient } from "@heron/git";
 import type { GitHubClient, PrFile } from "@heron/github";
 import { ITERATION_CONTRACT_SUMMARY, OUTPUT_CONTRACT_SUMMARY } from "@heron/harness";
-import { diskUsage } from "@heron/platform";
+import { diskUsage, type SetupShell } from "@heron/platform";
 import { contract, type AgentStepEvent, type DoctorReport, type ModelOption, type SkillDto, type TranscriptEntry } from "@heron/rpc";
 import type { Bus } from "./bus.ts";
 import { isCheckoutOf } from "./checkouts.ts";
@@ -33,6 +33,7 @@ export interface Services {
   paths: Paths;
   version: string;
   claudePath: () => string | null;
+  setupShell: () => SetupShell;
   viewerLogin: () => string | null;
   doctor: { last: () => DoctorReport | null; run: () => Promise<DoctorReport> };
   models: () => Promise<ModelOption[]>;
@@ -239,6 +240,10 @@ export function createRouter(s: Services) {
           message: "Choose your checkout of this repository. Iterations run there, on the PR's branch.",
           defaultPath: repo.localCheckoutPath ?? (existsSync(join(homedir(), "Code")) ? join(homedir(), "Code") : homedir()),
         });
+      }),
+      setupShell: os.repos.setupShell.handler(() => {
+        const { name, path } = s.setupShell();
+        return { name, path };
       }),
     },
 
