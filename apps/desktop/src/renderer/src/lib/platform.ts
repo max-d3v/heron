@@ -1,5 +1,8 @@
-/** Set on <html> by the preload, which the CSS keys off too (§17.2). */
-export const isWindows = document.documentElement.dataset.platform === "win32";
+/**
+ * From the user agent, not <html data-platform>: the preload can only set that at DOMContentLoaded,
+ * after this module has run. The CSS keys off the attribute (§17.2).
+ */
+export const isWindows = navigator.userAgent.includes("Windows");
 
 /** The few labels that differ on Windows (§17.8). */
 export const labels = isWindows

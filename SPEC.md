@@ -498,7 +498,7 @@ Heron also runs on Windows, for the same audience as v1 (only me) and with the s
   - `setupShell(env, gitPath)`: the shell and arguments for the setup command (§17.6).
   - `diskUsage(path)`: `du -sk` on macOS, a directory walk (`lstat`, symlinks not followed) on Windows. Moves here from `git`.
 - **`apps/desktop/src/main/platform.ts`**: the Electron differences: window options, tray icons, app menu, login item, notifications (§17.8).
-- **Renderer:** the preload sets `data-platform="darwin" | "win32"` on `<html>` (no new API is exposed). CSS and the few labels that differ key off it.
+- **Renderer:** the preload sets `data-platform="darwin" | "win32"` on `<html>` (no new API is exposed), and the CSS keys off it. It only lands at `DOMContentLoaded`, after the renderer's modules have run, so script code checks the user agent instead.
 
 ### 17.3 Environment and tools
 - **No login-shell probe on Windows.** GUI apps already get the user's full `Path` from the registry. `loadEnv()` starts from `process.env` and drops the same interactive-session variables as on macOS.

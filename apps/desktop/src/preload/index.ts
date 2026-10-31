@@ -9,7 +9,7 @@ window.addEventListener("message", (event) => {
   if (port) ipcRenderer.postMessage("heron:rpc-port", null, [port]);
 });
 
-// The CSS and the few labels that differ key off <html data-platform> (§17.2). `data-mica`:
+// The CSS keys off <html data-platform> (§17.2). `data-mica`:
 // Windows draws Mica behind the window, so the sidebar stays transparent as it does over vibrancy.
 const mark = () => {
   document.documentElement.dataset.platform = process.platform;
