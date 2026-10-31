@@ -100,7 +100,7 @@ In Settings → **Repos** → **Iteration**:
 - **Comments to iterate on**: **All comments** (anyone's, bots included) or **My comments** (only yours, which includes Heron's reviews since they post as you).
 - **Profile**: the model, effort, timeout and max turns, set in Settings → **Profiles**. Iteration profiles use a fixed prompt. The default is Opus at high effort.
 - **Replies**: on by default. Turn it off to keep Claude's notes in the app only.
-- **Setup command**: for example `pnpm install`, run before each iteration. With it, Claude can run tests and type checks. Without it, dependencies aren't installed.
+- **Setup command**: for example `pnpm install`, run before each iteration in Heron's copy of the repo. With it, Claude can run tests and type checks. Without it, dependencies aren't installed. It isn't used with **Local checkout**, where your clone is expected to be set up already.
 - **Local checkout**: by default Claude works in Heron's own copy of the repo, and your clone is never touched. Turn this on to use your own clone instead. It has to be on the PR's branch, at its latest commit, with no uncommitted changes. In this mode **Uncommit** takes Heron's commit back off and leaves the changes staged for you to finish.
 
 In Settings → **General**: parallel iterations (2), the wait after the last comment (30 seconds) and the loop cap (6).
