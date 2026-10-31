@@ -8,6 +8,8 @@ import {
   Eye,
   GitCommitHorizontal,
   GitPullRequest,
+  ListChecks,
+  MessageSquareText,
   Pause,
   Play,
   RefreshCw,
@@ -53,6 +55,24 @@ function icon(a: ActivityDto) {
       if (to === "cancelled" || to === "superseded") return <Ban className={cls} />;
       return <CircleDot className={cn(cls, "text-accent")} />;
     }
+    case "feedback.observed":
+      return <MessageSquareText className={cls} />;
+    case "feedback.triaged":
+      return <ListChecks className={cls} />;
+    case "iteration.created":
+      return <Clock className={cn(cls, "text-warn")} />;
+    case "iteration.retry":
+      return <RefreshCw className={cn(cls, "text-warn")} />;
+    case "iteration.error":
+      return <TriangleAlert className={cn(cls, "text-bad")} />;
+    case "iteration.state": {
+      const to = a.data?.to;
+      if (to === "pushed") return <GitCommitHorizontal className={cn(cls, "text-ok")} />;
+      if (to === "ready") return <CircleCheck className={cn(cls, "text-purple")} />;
+      if (to === "failed") return <CircleX className={cn(cls, "text-bad")} />;
+      if (to === "cancelled" || to === "stale" || to === "discarded" || to === "uncommitted" || to === "skipped" || to === "no_changes") return <Ban className={cls} />;
+      return <CircleDot className={cn(cls, "text-accent")} />;
+    }
     default:
       return <CircleDot className={cls} />;
   }
@@ -82,7 +102,7 @@ export function ActivityTab({ prId }: { prId: number }) {
             <div className="selectable text-[12.5px] leading-[1.4]">{a.message}</div>
             <div className="mt-0.5 text-[11px] text-fg-3">
               {dateTime(a.ts)}
-              {a.reviewId ? ` · run ${a.reviewId}` : ""}
+              {a.reviewId ? ` · review ${a.reviewId}` : a.iterationId ? ` · iteration ${a.iterationId}` : ""}
             </div>
           </div>
         </li>

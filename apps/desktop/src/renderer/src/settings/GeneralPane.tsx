@@ -28,7 +28,7 @@ export function GeneralPane() {
           <ErrorNote>{errorText(update.error)}</ErrorNote>
         </div>
       )}
-      <Field label="Parallel reviews" hint="How many reviews run at the same time.">
+      <Field label="Parallel runs" hint="How many reviews and iterations run at the same time.">
         <NumberInput value={s.parallelRuns} min={1} max={8} onCommit={(v) => set({ parallelRuns: v })} />
       </Field>
       <Field label="Check GitHub every" hint="Unchanged repos cost nothing against the rate limit (ETags).">
@@ -37,7 +37,13 @@ export function GeneralPane() {
       <Field label="Wait after a push" hint="Another push in this window restarts it, so a burst of commits gets one review.">
         <NumberInput value={s.debounceSec} min={0} max={7200} suffix="seconds" onCommit={(v) => set({ debounceSec: v })} />
       </Field>
-      <Field label="Dry run" hint="Run reviews but don't post them to GitHub. Results show in the app only.">
+      <Field label="Wait after a comment" hint="Iterations triage feedback this long after the newest comment, so a burst of comments is one batch.">
+        <NumberInput value={s.iterationDebounceSec} min={0} max={7200} suffix="seconds" onCommit={(v) => set({ iterationDebounceSec: v })} />
+      </Field>
+      <Field label="Loop cap" hint="After this many Heron pushes in a row with no other push, a PR waits for Iterate until someone else pushes.">
+        <NumberInput value={s.loopCap} min={1} max={20} suffix="pushes" onCommit={(v) => set({ loopCap: v })} />
+      </Field>
+      <Field label="Dry run" hint="Run reviews and iterations but post nothing to GitHub: no reviews, pushes or replies. Results show in the app only.">
         <Switch checked={s.dryRun} onChange={(v) => set({ dryRun: v })} label="Dry run" />
       </Field>
 
@@ -46,13 +52,13 @@ export function GeneralPane() {
       <Field label="Launch at login">
         <Switch checked={s.launchAtLogin} onChange={(v) => set({ launchAtLogin: v })} label="Launch at login" />
       </Field>
-      <Field label="Notify when a review">
+      <Field label="Notify" hint="Done: a review is posted, feedback waits for Iterate, or an iteration is ready to push or pushed.">
         <div className="flex items-center gap-5 text-[13px]">
           <label className="flex items-center gap-2">
-            <Switch checked={s.notifyPosted} onChange={(v) => set({ notifyPosted: v })} label="Posted" /> is posted
+            <Switch checked={s.notifyPosted} onChange={(v) => set({ notifyPosted: v })} label="Done" /> Done
           </label>
           <label className="flex items-center gap-2">
-            <Switch checked={s.notifyFailed} onChange={(v) => set({ notifyFailed: v })} label="Failed" /> fails
+            <Switch checked={s.notifyFailed} onChange={(v) => set({ notifyFailed: v })} label="Failed" /> Failed
           </label>
         </div>
       </Field>

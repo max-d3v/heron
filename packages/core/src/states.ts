@@ -1,7 +1,7 @@
 import type { ReviewState, StepState } from "./types.ts";
 
 // debouncing → queued → preparing → running → validating → posting → posted
-//                                                         ↘ completed (dry run)
+//                                                         ↘ completed (dry run, or nothing to post)
 // any → failed | superseded | cancelled
 //
 // A retry parks the review back in `queued` with `retryStep` set, so the scheduler
@@ -48,7 +48,8 @@ export function canTransition(from: ReviewState, to: ReviewState): boolean {
   return FORWARD[from].includes(to);
 }
 
-export function nextStep(state: StepState, dryRun: boolean): ReviewState {
+/** `posts`: the review goes to GitHub (not a dry run, and it has something to say). */
+export function nextStep(state: StepState, posts: boolean): ReviewState {
   switch (state) {
     case "preparing":
       return "running";
@@ -57,7 +58,7 @@ export function nextStep(state: StepState, dryRun: boolean): ReviewState {
     case "validating":
       return "posting";
     case "posting":
-      return dryRun ? "completed" : "posted";
+      return posts ? "posted" : "completed";
   }
 }
 

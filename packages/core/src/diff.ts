@@ -206,6 +206,11 @@ export function validateAgainstDiff(output: ReviewOutput, files: DiffFile[]): Re
   return { body, comments, movedToBody: moved };
 }
 
+/** No body and no inline comments: the agent found nothing to raise, so nothing is posted. */
+export function isEmptyPayload(payload: ReviewPayload): boolean {
+  return payload.body.trim() === "" && payload.comments.length === 0;
+}
+
 /** Fold every inline comment into the body (used when GitHub rejects the inline comments). */
 export function foldCommentsIntoBody(payload: ReviewPayload): ReviewPayload {
   if (payload.comments.length === 0) return payload;

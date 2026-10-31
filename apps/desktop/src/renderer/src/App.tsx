@@ -4,7 +4,7 @@ import { GitPullRequest } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Banner } from "./components/Banner";
 import { DoctorScreen } from "./components/Doctor";
-import { PrDetail } from "./components/PrDetail";
+import { PrDetail, type Tab } from "./components/PrDetail";
 import { Sidebar } from "./components/Sidebar";
 import { Empty, TooltipProvider } from "./components/ui";
 import { useStream } from "./lib/hooks";
@@ -17,6 +17,7 @@ export function App() {
   const [selected, setSelected] = useState<number | null>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [requestedTab, setRequestedTab] = useState<{ tab: Tab; at: number } | null>(null);
 
   const prs = useStream<PrListItem[]>("prs", (signal) => client.prs.watch(undefined, { signal }), "latest");
   const queue = useStream<QueueStatusDto>("queue", (signal) => client.queue.status(undefined, { signal }), "latest").latest;
@@ -31,6 +32,7 @@ export function App() {
     if (!list) return;
     void qc.invalidateQueries({ queryKey: orpc.prs.get.key() });
     void qc.invalidateQueries({ queryKey: orpc.reviews.key() });
+    void qc.invalidateQueries({ queryKey: orpc.iterations.key() });
   }, [list, qc]);
 
   const pauseReasons = queue?.reasons.join(",");
@@ -56,6 +58,7 @@ export function App() {
           if (e.kind === "openPr") {
             setSettingsTab(null);
             setSelected(e.prId);
+            setRequestedTab(e.tab ? { tab: e.tab, at: Date.now() } : null);
           } else if (e.kind === "openSettings") {
             setSettingsTab((t) => t ?? "repos");
           } else {
@@ -88,7 +91,10 @@ export function App() {
           prs={list ?? []}
           loading={!list}
           selectedId={selected}
-          onSelect={setSelected}
+          onSelect={(id) => {
+            setSelected(id);
+            setRequestedTab(null);
+          }}
           onOpenSettings={() => openSettings()}
           queue={queue}
           showAll={showAll}
@@ -98,7 +104,7 @@ export function App() {
           <Banner queue={queue} onOpenSetup={() => openSettings("general")} />
           <div className="min-h-0 flex-1">
             {selected !== null ? (
-              <PrDetail key={selected} prId={selected} />
+              <PrDetail key={selected} prId={selected} requestedTab={requestedTab} />
             ) : (
               <div className="relative h-full">
                 <div className="drag absolute inset-x-0 top-0 h-[52px]" />

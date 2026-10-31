@@ -1,5 +1,5 @@
-import type { PrListItem, QueueStatusDto } from "@heron/rpc";
-import { Eye, EyeOff, GitPullRequest, Pause, Play, Search, Settings } from "lucide-react";
+import type { IterationBadge, PrListItem, QueueStatusDto } from "@heron/rpc";
+import { Eye, EyeOff, GitPullRequest, MessageSquareText, Pause, Play, Search, Settings, TriangleAlert, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import { relativeTime } from "../lib/format";
@@ -149,6 +149,7 @@ function PrRow({ pr, selected, now, onClick }: { pr: PrListItem; selected: boole
           {pr.isDraft && <Tag selected={selected}>Draft</Tag>}
           {closed && <Tag selected={selected}>{pr.state === "merged" ? "Merged" : "Closed"}</Tag>}
           {pr.headUnreviewed && !closed && <Tag selected={selected}>New commits</Tag>}
+          {pr.iteration && <IterationTag badge={pr.iteration} selected={selected} />}
         </span>
       </span>
     </button>
@@ -158,6 +159,36 @@ function PrRow({ pr, selected, now, onClick }: { pr: PrListItem; selected: boole
 function Tag({ children, selected }: { children: string; selected: boolean }) {
   return (
     <span className={cn("shrink-0 rounded-[4px] px-1 text-[10px] font-medium", selected ? "bg-white/20 text-white" : "bg-field text-fg-2")}>{children}</span>
+  );
+}
+
+const ITERATION_TAG: Record<IterationBadge, { label: string; tip: string; tone: string }> = {
+  waiting: { label: "Feedback", tip: "Feedback is waiting for Iterate", tone: "bg-[color-mix(in_srgb,var(--orange)_16%,transparent)] text-warn" },
+  running: { label: "Iterating", tip: "Iteration in progress", tone: "bg-accent-soft text-accent" },
+  ready: { label: "Ready to push", tip: "An iteration's commit is ready to push", tone: "bg-[color-mix(in_srgb,var(--purple)_16%,transparent)] text-purple" },
+  failed: { label: "Iteration failed", tip: "The latest iteration failed", tone: "bg-[color-mix(in_srgb,var(--red)_14%,transparent)] text-bad" },
+};
+
+/** The second badge: what the PR's iterations need or are doing. */
+function IterationTag({ badge, selected }: { badge: IterationBadge; selected: boolean }) {
+  const t = ITERATION_TAG[badge];
+  const icon =
+    badge === "running" ? (
+      <span className={cn("spin size-2 rounded-full border-[1.5px] border-t-transparent", selected ? "border-white" : "border-accent")} />
+    ) : badge === "ready" ? (
+      <Upload className="size-2.5" />
+    ) : badge === "failed" ? (
+      <TriangleAlert className="size-2.5" />
+    ) : (
+      <MessageSquareText className="size-2.5" />
+    );
+  return (
+    <Tooltip content={t.tip} side="right">
+      <span className={cn("flex shrink-0 items-center gap-1 rounded-[4px] px-1 text-[10px] font-medium", selected ? "bg-white/20 text-white" : t.tone)}>
+        {icon}
+        {t.label}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -174,9 +205,11 @@ function QueueIndicator({ queue }: { queue: QueueStatusDto | null }) {
           : "Paused"
     : queue.running > 0
       ? `${queue.running} running`
-      : queue.queued + queue.debouncing > 0
-        ? `${queue.queued + queue.debouncing} waiting`
-        : "Idle";
+      : queue.readyToPush > 0
+        ? `${queue.readyToPush} ready to push`
+        : queue.queued + queue.debouncing > 0
+          ? `${queue.queued + queue.debouncing} waiting`
+          : "Idle";
   return (
     <div className="flex items-center gap-1">
       <Tooltip content={queue.message ?? (queue.paused ? "Paused" : "Reviews run automatically")}>

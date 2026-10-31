@@ -13,6 +13,7 @@ import {
   isInFlight,
   isTerminal,
   retryDelay,
+  type PauseReason,
   type Pr,
   type PrChange,
   type QueueStatus,
@@ -42,6 +43,8 @@ export interface SchedulerDeps {
   viewerLogin: () => string | null;
   notify: (n: { title: string; body: string; prId: number }) => void;
   requestPoll: () => void;
+  /** Iterations share the parallel-run slots and show in the queue status. */
+  iterations: () => { slots: number; running: number; readyToPush: number };
 }
 
 interface ActiveRun {
@@ -152,13 +155,20 @@ export class Scheduler {
     return this.authMessage;
   }
 
-  status(): QueueStatus {
-    const reasons: QueueStatus["reasons"] = [];
+  /** Why the queue is paused (empty when it runs). Iterations pause with it. */
+  pauseReasons(): PauseReason[] {
+    const reasons: PauseReason[] = [];
     if (this.d.settings().manualPause) reasons.push("manual");
     if (this.limitUntil && this.limitUntil > Date.now()) reasons.push("limit");
     if (this.authMessage) reasons.push("auth");
     if (!this.doctorOk) reasons.push("doctor");
+    return reasons;
+  }
+
+  status(): QueueStatus {
+    const reasons = this.pauseReasons();
     const counts = this.d.db.countByState();
+    const iterations = this.d.iterations();
     let message: string | null = null;
     if (reasons.includes("auth")) message = this.authMessage;
     else if (reasons.includes("limit")) message = `${this.limitMessage ?? "Usage limit"}. Resumes at ${new Date(this.limitUntil!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
@@ -169,9 +179,10 @@ export class Scheduler {
       reasons,
       limitUntil: reasons.includes("limit") ? this.limitUntil : null,
       message,
-      running: this.runs.size,
+      running: this.runs.size + iterations.running,
       queued: counts.queued ?? 0,
       debouncing: counts.debouncing ?? 0,
+      readyToPush: iterations.readyToPush,
     };
   }
 
@@ -189,7 +200,6 @@ export class Scheduler {
   handleChanges(repo: Repo, changes: PrChange[]): void {
     const { db, store } = this.d;
     const viewer = this.d.viewerLogin();
-    const manual = db.getManualPrs(repo.id);
 
     for (const change of changes) {
       if (change.type === "PrClosed") {
@@ -232,11 +242,11 @@ export class Scheduler {
 
       const headChanged = change.type === "PrObserved" || ("headChanged" in change && change.headChanged);
       if (headChanged) this.supersedeOlder(pr, pr.headSha);
-      if (change.type === "PrUpdated" && change.draft === "to_draft" && !isDraftAllowed(repo, pr, manual)) {
+      if (change.type === "PrUpdated" && change.draft === "to_draft" && !isDraftAllowed(repo, pr)) {
         this.stopActive(pr.id, "cancelled", "Converted to draft", ["debouncing", "queued"]);
       }
 
-      if (changeTriggersReview(change) && isEligible(repo, pr, viewer, manual)) this.debounce(pr, "auto");
+      if (changeTriggersReview(change) && isEligible(repo, pr, viewer)) this.debounce(pr, "auto");
     }
     this.tick();
   }
@@ -337,19 +347,6 @@ export class Scheduler {
     this.tick();
   }
 
-  /** Hand-picking a PR (manual scope) is a request to review it, so its current head is owed now. */
-  onManualPicks(repo: Repo, added: number[]): void {
-    const viewer = this.d.viewerLogin();
-    const manual = this.d.db.getManualPrs(repo.id);
-    for (const pr of this.d.db.listPrsForRepo(repo.id)) {
-      if (!added.includes(pr.number) || !isEligible(repo, pr, viewer, manual)) continue;
-      if (hasReviewForSha(this.d.db.listReviewsForPr(pr.id), pr.headSha)) continue;
-      const review = this.d.db.createReview({ prId: pr.id, headSha: pr.headSha, state: "queued", trigger: "manual", runAfter: Date.now() });
-      this.d.store.activity({ prId: pr.id, reviewId: review.id, kind: "review.created", message: `Picked for review (${short(pr.headSha)})` });
-    }
-    this.tick();
-  }
-
   /** A repo is being removed: stop everything for it. */
   stopRepo(repoId: number): void {
     for (const pr of this.d.db.listPrsForRepo(repoId)) this.stopActive(pr.id, "cancelled", "Repo removed");
@@ -378,14 +375,14 @@ export class Scheduler {
       if (!this.status().paused) {
         const max = this.d.settings().parallelRuns;
         const busyPrs = new Set([...this.runs.values()].map((r) => r.prId));
-        // A paused repo starts nothing new (work already running finishes).
-        const disabledRepos = new Set(db.listRepos().filter((r) => !r.enabled).map((r) => r.id));
+        // A repo with reviews off starts no new review (work already running finishes).
+        const disabledRepos = new Set(db.listRepos().filter((r) => !r.reviewEnabled).map((r) => r.id));
         for (const pr of disabledRepos.size ? db.listOpenPrs() : []) if (disabledRepos.has(pr.repoId)) busyPrs.add(pr.id);
         // Reviews interrupted mid-step (crash/quit) first, then the queue in order.
         const resumable = db.listReviewsInStates(STEP_STATES).filter((r) => !this.runs.has(r.id));
         const queued = db.listReviewsInStates(["queued"]).filter((r) => (r.runAfter ?? 0) <= now);
         for (const r of [...resumable, ...queued]) {
-          if (this.runs.size >= max) break;
+          if (this.runs.size + this.d.iterations().slots >= max) break;
           // One run per PR at a time: they share the PR's worktree.
           if (busyPrs.has(r.prId)) continue;
           busyPrs.add(r.prId);
@@ -422,7 +419,8 @@ export class Scheduler {
       this.d.notify({ title: "Review posted", body: `#${pr.number} ${pr.title}`, prId: pr.id });
     }
     if (review.state === "completed" && s.notifyPosted) {
-      this.d.notify({ title: "Review ready (dry run)", body: `#${pr.number} ${pr.title}`, prId: pr.id });
+      const title = review.profileSnapshot?.dryRun ? "Review ready (dry run)" : "No issues found";
+      this.d.notify({ title, body: `#${pr.number} ${pr.title}`, prId: pr.id });
     }
   }
 
@@ -506,12 +504,12 @@ export class Scheduler {
   }
 }
 
-function formatDelay(ms: number): string {
+export function formatDelay(ms: number): string {
   return ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)}s`;
 }
 
 /** Kill a leftover agent from a previous session, if that pid is still a claude process. */
-async function killOrphan(pid: number): Promise<void> {
+export async function killOrphan(pid: number): Promise<void> {
   const command = await new Promise<string>((resolve) => {
     execFile("/bin/ps", ["-p", String(pid), "-o", "command="], (err, stdout) => resolve(err ? "" : String(stdout)));
   });

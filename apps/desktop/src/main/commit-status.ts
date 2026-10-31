@@ -13,8 +13,9 @@ export interface CommitStatusDeps {
 
 /**
  * Mirrors each review onto its head commit as the `heron/review` status, so it shows in
- * the PR's checks box: pending while it runs, success once posted (linking the review),
- * error if it fails or is cancelled. Dry runs post nothing to GitHub, so they set nothing.
+ * the PR's checks box: pending while it runs, success once posted (linking the review) or
+ * when it found nothing to post, error if it fails or is cancelled. Dry runs post nothing
+ * to GitHub, so they set nothing.
  */
 export class CommitStatusReporter {
   // One at a time, so a slow "pending" can't land after the "success" that follows it.
@@ -61,6 +62,8 @@ function statusFor(review: Review, pr: Pr, from: ReviewState, to: ReviewState): 
   // Leaving the queue, on the first attempt or a retry.
   if (from === "queued" && isInFlight(to)) return { state: "pending", description: "Reviewing…" };
   if (to === "posted") return { state: "success", description: "Review posted", targetUrl: review.githubReviewUrl ?? undefined };
+  // Not a dry run (those set nothing), so the review found nothing to raise.
+  if (to === "completed") return { state: "success", description: "No issues found" };
   // Only a review that started has a pending status to replace. Superseded ones are on a
   // commit that is no longer the PR head, and closed PRs don't show their checks.
   if (review.startedAt === null) return null;

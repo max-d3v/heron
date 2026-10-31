@@ -45,7 +45,7 @@ function toolStep(cwd: string, name: string, input: Record<string, unknown>): Ag
     case "TodoWrite":
       return { kind: "plan", label: "Updating plan" };
     case "StructuredOutput":
-      return { kind: "output", label: "Writing review…" };
+      return { kind: "output", label: "Writing the result…" };
     default:
       if (name.startsWith("mcp__")) return { kind: "other", label: `Calling ${name.slice(5).replace("__", ": ")}` };
       return { kind: "other", label: name };

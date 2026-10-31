@@ -13,6 +13,8 @@ import { CommitStatusReporter } from "./commit-status.ts";
 import { runDoctor } from "./doctor.ts";
 import { loadShellEnv, resolveBinaries, type Binaries } from "./env.ts";
 import { ensureLayout, makePaths } from "./paths.ts";
+import { IterationPipeline } from "./iteration-pipeline.ts";
+import { IterationScheduler } from "./iterations.ts";
 import { Pipeline } from "./pipeline.ts";
 import { Poller } from "./poller.ts";
 import { DEFAULT_PROMPT } from "./prompts.ts";
@@ -54,10 +56,12 @@ async function main(): Promise<void> {
   } catch {
     // Missing from the build: the Default profile falls back to the plain prompt.
   }
-  if (db.listProfiles().length === 0) {
+  // (Migrations create the default iteration profile; the review one depends on the bundled skill.)
+  if (db.listProfiles("review").length === 0) {
     const prReview = db.listSkills().find((s) => s.source === "imported" && s.name === "pr-review");
     db.saveProfile({
       name: "Default",
+      kind: "review",
       isDefault: true,
       entry: prReview ? { type: "skill", skillId: prReview.id } : { type: "prompt", markdown: DEFAULT_PROMPT },
       model: "opus",
@@ -102,20 +106,34 @@ async function main(): Promise<void> {
     mainWindow.focus();
   };
 
-  const notify = (n: { title: string; body: string; prId: number }) => {
+  const notify = (n: { title: string; body: string; prId: number; tab?: "iteration" }) => {
     if (!Notification.isSupported()) return;
     const note = new Notification({ title: n.title, body: n.body, silent: false });
     note.on("click", () => {
       showWindow();
-      bus.publish("app", { kind: "openPr", prId: n.prId });
+      bus.publish("app", { kind: "openPr", prId: n.prId, ...(n.tab ? { tab: n.tab } : {}) });
     });
     note.show();
   };
 
   new CommitStatusReporter({ db, store, github, settings }).start(bus);
   const pipeline = new Pipeline({ db, store, github, git, paths, skills, version, env: () => env, claudePath: () => bins.claude, settings });
+  const iterationPipeline = new IterationPipeline({
+    db,
+    store,
+    github,
+    git,
+    paths,
+    version,
+    env: () => env,
+    claudePath: () => bins.claude,
+    settings,
+    viewerLogin: () => viewerLogin,
+  });
   // eslint-disable-next-line prefer-const -- assigned after the scheduler, which needs a reference to it
   let poller: Poller;
+  // eslint-disable-next-line prefer-const -- the two schedulers share slots and pauses, so each refers to the other
+  let iterations: IterationScheduler;
   const scheduler = new Scheduler({
     db,
     store,
@@ -128,12 +146,32 @@ async function main(): Promise<void> {
     viewerLogin: () => viewerLogin,
     notify,
     requestPoll: () => void poller.pollNow(),
+    iterations: () => ({ slots: iterations.slotCount, running: iterations.runningCount, readyToPush: iterations.readyToPush() }),
+  });
+  iterations = new IterationScheduler({
+    db,
+    store,
+    pipeline: iterationPipeline,
+    github,
+    git,
+    paths,
+    settings,
+    viewerLogin: () => viewerLogin,
+    notify,
+    requestPoll: () => void poller.pollNow(),
+    queue: {
+      pauseReasons: () => scheduler.pauseReasons(),
+      pauseForLimit: (until, message) => scheduler.pauseForLimit(until, message),
+      pauseForAuth: (message) => scheduler.pauseForAuth(message),
+      reviewRuns: () => scheduler.runningCount,
+    },
   });
   poller = new Poller({
     db,
     store,
     github,
     scheduler,
+    iterations,
     intervalSec: () => settings().pollIntervalSec,
     ready: () => doctorReport?.ok ?? false,
   });
@@ -183,6 +221,7 @@ async function main(): Promise<void> {
     if (manualPause !== undefined && manualPause !== before.manualPause) scheduler.pauseManual(manualPause);
     bus.publish("app", { kind: "config", what: "settings" });
     scheduler.tick();
+    iterations.tick();
     return settings();
   };
 
@@ -193,6 +232,7 @@ async function main(): Promise<void> {
       store,
       bus,
       scheduler,
+      iterations,
       poller,
       github,
       git,
@@ -204,13 +244,8 @@ async function main(): Promise<void> {
       doctor: { last: () => doctorReport, run: doctor },
       models,
       updateSettings,
-      pickFolder: async (defaultPath) => {
-        const options: Electron.OpenDialogOptions = {
-          title: "Import a skill folder",
-          defaultPath,
-          properties: ["openDirectory"],
-          message: "Choose a folder that contains SKILL.md",
-        };
+      pickFolder: async ({ title, message, defaultPath }) => {
+        const options: Electron.OpenDialogOptions = { title, defaultPath, properties: ["openDirectory"], message };
         const res = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
         return res.canceled ? null : (res.filePaths[0] ?? null);
       },
@@ -235,6 +270,11 @@ async function main(): Promise<void> {
 
   const tray = new HeronTray(resourcesDir, {
     open: showWindow,
+    openReady: () => {
+      const ready = db.listIterationsInStates(["ready"])[0];
+      showWindow();
+      if (ready) bus.publish("app", { kind: "openPr", prId: ready.prId, tab: "iteration" });
+    },
     pause: () => scheduler.pauseManual(true),
     resume: () => scheduler.pauseManual(false),
     quit: () => app.quit(),
@@ -247,6 +287,7 @@ async function main(): Promise<void> {
 
   showWindow();
   await scheduler.start();
+  await iterations.start();
   poller.start();
   void doctor();
 
@@ -258,6 +299,7 @@ async function main(): Promise<void> {
   powerMonitor.on("resume", () => {
     void poller.pollNow();
     scheduler.tick();
+    iterations.tick();
   });
 
   app.on("activate", showWindow);
@@ -267,14 +309,14 @@ async function main(): Promise<void> {
     if (quitConfirmed) return;
     event.preventDefault();
     void (async () => {
-      const n = scheduler.runningCount;
+      const n = scheduler.runningCount + iterations.runningCount;
       if (n > 0) {
         const { response } = await dialog.showMessageBox({
           type: "warning",
           buttons: ["Quit", "Cancel"],
           defaultId: 1,
           cancelId: 1,
-          message: `${n} review${n === 1 ? "" : "s"} running. Quit anyway?`,
+          message: `${n} run${n === 1 ? "" : "s"} in progress. Quit anyway?`,
           detail: "They stop now and pick up from the start of their current step the next time Heron opens.",
         });
         if (response !== 0) return;
@@ -283,7 +325,7 @@ async function main(): Promise<void> {
       // Everything that writes to the database stops before it closes: a late write
       // throws "The database connection is not open" in the main process.
       const idle = await Promise.race([
-        Promise.allSettled([poller.stop(), scheduler.shutdown()]).then(() => true),
+        Promise.allSettled([poller.stop(), scheduler.shutdown(), iterations.shutdown()]).then(() => true),
         new Promise<boolean>((r) => setTimeout(() => r(false), 8000)),
       ]);
       tray.destroy();

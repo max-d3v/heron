@@ -4,6 +4,8 @@ import type { QueueStatus } from "@heron/core";
 
 export interface TrayActions {
   open: () => void;
+  /** Show the window on the first PR whose iteration waits for Push. */
+  openReady: () => void;
   pause: () => void;
   resume: () => void;
   quit: () => void;
@@ -40,12 +42,14 @@ export class HeronTray {
 
     this.tray.setImage(paused ? this.pausedIcon : this.idleIcon);
     this.tray.setTitle(running > 0 ? ` ${running}` : "", { fontType: "monospacedDigit" });
-    this.tray.setToolTip(`Heron: ${line}`);
+    const ready = status?.readyToPush ?? 0;
+    this.tray.setToolTip(`Heron: ${line}${ready > 0 ? ` · ${ready} ready to push` : ""}`);
 
     const manualPaused = status?.reasons.includes("manual") ?? false;
     this.tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: line, enabled: false },
+        ...(ready > 0 ? [{ label: `${ready} ready to push`, click: this.actions.openReady }] : []),
         { type: "separator" },
         { label: "Open Heron", click: this.actions.open },
         manualPaused ? { label: "Resume", click: this.actions.resume } : { label: "Pause All", click: this.actions.pause },

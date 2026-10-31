@@ -1,4 +1,4 @@
-import type { Pr, Repo, RepoScope, Review } from "./types.ts";
+import type { IterationComments, Pr, Repo, RepoScope, Review } from "./types.ts";
 
 /** A PR as seen in GitHub's open-PR list. */
 export interface ObservedPr {
@@ -10,6 +10,8 @@ export interface ObservedPr {
   isDraft: boolean;
   headSha: string;
   headRef: string;
+  /** `owner/name` of the head branch's repo; null when the fork was deleted. */
+  headRepo: string | null;
   baseRef: string;
   baseSha: string;
   url: string;
@@ -70,37 +72,30 @@ export function diffPrs(known: Pr[], observed: ObservedPr[]): PrChange[] {
   return changes;
 }
 
-export function isInScope(
-  scope: RepoScope,
-  pr: Pr,
-  viewerLogin: string | null,
-  manualPrs: ReadonlySet<number>,
-): boolean {
+/** Is the PR one the repo's scope covers (the sidebar lists it)? Manual covers every PR; it just never reviews one on its own. */
+export function isInScope(scope: RepoScope, pr: Pr, viewerLogin: string | null): boolean {
   switch (scope) {
     case "all":
+    case "manual":
       return true;
     case "mine":
       return viewerLogin !== null && pr.author.toLowerCase() === viewerLogin.toLowerCase();
-    case "manual":
-      return manualPrs.has(pr.number);
   }
 }
 
-/** Drafts are skipped unless the repo allows them; a hand-picked draft is always reviewed. */
-export function isDraftAllowed(repo: Repo, pr: Pr, manualPrs: ReadonlySet<number>): boolean {
-  if (!pr.isDraft) return true;
-  if (repo.includeDrafts) return true;
-  return repo.scope === "manual" && manualPrs.has(pr.number);
+/** Drafts are skipped unless the repo allows them. */
+export function isDraftAllowed(repo: Repo, pr: Pr): boolean {
+  return !pr.isDraft || repo.includeDrafts;
+}
+
+/** Does a push start a review of this PR on its own? Not with reviews off or in manual scope (there, reviews start with Review now). */
+export function reviewsAutomatically(repo: Repo, pr: Pr, viewerLogin: string | null): boolean {
+  return repo.reviewEnabled && repo.scope !== "manual" && isInScope(repo.scope, pr, viewerLogin) && isDraftAllowed(repo, pr);
 }
 
 /** Should this PR be reviewed automatically at all (ignoring which SHAs were reviewed)? */
-export function isEligible(repo: Repo, pr: Pr, viewerLogin: string | null, manualPrs: ReadonlySet<number>): boolean {
-  return (
-    repo.enabled &&
-    pr.state === "open" &&
-    isInScope(repo.scope, pr, viewerLogin, manualPrs) &&
-    isDraftAllowed(repo, pr, manualPrs)
-  );
+export function isEligible(repo: Repo, pr: Pr, viewerLogin: string | null): boolean {
+  return pr.state === "open" && reviewsAutomatically(repo, pr, viewerLogin);
 }
 
 /** A SHA counts as reviewed once any run for it got past being superseded or cancelled. */
@@ -120,4 +115,22 @@ export function changeTriggersReview(change: PrChange): boolean {
     case "PrClosed":
       return false;
   }
+}
+
+const sameLogin = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+/** Iterations run on open PRs the viewer opened, from a branch in the same repo; forks are skipped (§15.1). */
+export function iterationEligibility(repo: Repo, pr: Pr, viewerLogin: string | null): { ok: true } | { ok: false; reason: string } {
+  if (viewerLogin === null || !sameLogin(pr.author, viewerLogin)) return { ok: false, reason: "Iterations only run on PRs you opened." };
+  if (pr.headRepo === null || !sameLogin(pr.headRepo, `${repo.owner}/${repo.name}`)) {
+    return { ok: false, reason: "This PR comes from a fork. Iterations only run on branches in the same repo." };
+  }
+  if (pr.state !== "open") return { ok: false, reason: `This PR is ${pr.state}.` };
+  return { ok: true };
+}
+
+/** Does a comment by `author` count under the repo's iteration comments? `mine` keeps the viewer's own (Heron's reviews post as the viewer). */
+export function feedbackCounts(comments: IterationComments, author: string, viewerLogin: string | null): boolean {
+  if (comments === "all") return true;
+  return viewerLogin !== null && sameLogin(author, viewerLogin);
 }

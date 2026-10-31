@@ -1,16 +1,18 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { ORPCError, implement } from "@orpc/server";
-import type { Settings } from "@heron/core";
+import { parseDiff, type Settings } from "@heron/core";
 import type { HeronDb } from "@heron/db";
 import { diskUsage, type GitClient } from "@heron/git";
 import type { GitHubClient, PrFile } from "@heron/github";
-import { OUTPUT_CONTRACT_SUMMARY } from "@heron/harness";
-import { contract, type DoctorReport, type ModelOption, type SkillDto, type TranscriptEntry } from "@heron/rpc";
+import { ITERATION_CONTRACT_SUMMARY, OUTPUT_CONTRACT_SUMMARY } from "@heron/harness";
+import { contract, type AgentStepEvent, type DoctorReport, type ModelOption, type SkillDto, type TranscriptEntry } from "@heron/rpc";
 import type { Bus } from "./bus.ts";
-import { listPrItems, toRepoDto, toReviewDetail, toRunSummary } from "./dto.ts";
+import { isCheckoutOf } from "./checkouts.ts";
+import { listPrItems, toFeedbackPanel, toIterationDetail, toIterationSummary, toRepoDto, toReviewDetail, toRunSummary } from "./dto.ts";
+import type { IterationScheduler } from "./iterations.ts";
 import type { Paths } from "./paths.ts";
 import type { Poller } from "./poller.ts";
 import type { Scheduler } from "./scheduler.ts";
@@ -22,6 +24,7 @@ export interface Services {
   store: Store;
   bus: Bus;
   scheduler: Scheduler;
+  iterations: IterationScheduler;
   poller: Poller;
   github: GitHubClient;
   git: GitClient;
@@ -33,7 +36,7 @@ export interface Services {
   doctor: { last: () => DoctorReport | null; run: () => Promise<DoctorReport> };
   models: () => Promise<ModelOption[]>;
   updateSettings: (patch: Partial<Settings>) => Settings;
-  pickFolder: (defaultPath: string) => Promise<string | null>;
+  pickFolder: (o: { title: string; message: string; defaultPath: string }) => Promise<string | null>;
   openExternal: (url: string) => Promise<void>;
   reveal: (path: string) => void;
 }
@@ -73,8 +76,35 @@ function summarizeTranscriptLine(obj: Record<string, unknown>): { type: string; 
   if (type === "result") return { type: type + subtype, summary: clip(String(obj.result ?? (obj.errors as string[] | undefined)?.join("; ") ?? "")) };
   if (type === "system" && obj.subtype === "init") return { type: type + subtype, summary: `model ${String(obj.model)}` };
   if (type === "stderr") return { type, summary: clip(String(obj.text ?? "")) };
-  if (type === "heron") return { type, summary: String(obj.event ?? "") };
+  if (type === "heron") return { type, summary: [obj.event, obj.run].filter(Boolean).join(" ") };
+  if (type === "setup") return { type, summary: clip(String(obj.text ?? "")) };
   return { type: type + subtype, summary: "" };
+}
+
+async function readTranscript(path: string): Promise<{ entries: TranscriptEntry[]; truncated: boolean }> {
+  if (!existsSync(path)) return { entries: [], truncated: false };
+  const lines = (await readFile(path, "utf8")).split("\n").filter(Boolean);
+  const max = 3000;
+  const entries: TranscriptEntry[] = lines.slice(0, max).map((line, index) => {
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      obj = { type: "unparsed" };
+    }
+    return { index, ...summarizeTranscriptLine(obj), raw: line.length > 50_000 ? `${line.slice(0, 50_000)}…` : line };
+  });
+  return { entries, truncated: lines.length > max };
+}
+
+function toStepEvent(a: { id: number; ts: number; message: string; data: Record<string, unknown> | null }, run: { reviewId?: number; iterationId?: number }): AgentStepEvent {
+  return {
+    id: a.id,
+    reviewId: run.reviewId ?? null,
+    iterationId: run.iterationId ?? null,
+    ts: a.ts,
+    step: { kind: (a.data?.kind as never) ?? "other", label: a.message, ...(a.data?.detail ? { detail: String(a.data.detail) } : {}) },
+  };
 }
 
 export function createRouter(s: Services) {
@@ -84,7 +114,7 @@ export function createRouter(s: Services) {
   const skillDto = async (id: number): Promise<SkillDto> => {
     const skill = s.skills.require(id);
     const { description, exists } = await s.skills.describe(skill);
-    const usedBy = db.listProfiles().filter((p) => p.entry.type === "skill" && p.entry.skillId === id).map((p) => p.name);
+    const usedBy = db.listProfiles("review").filter((p) => p.entry?.type === "skill" && p.entry.skillId === id).map((p) => p.name);
     return { ...skill, command: `/${skillCommand(skill)}`, description, exists, usedBy };
   };
 
@@ -97,6 +127,11 @@ export function createRouter(s: Services) {
     const repo = db.getRepo(id);
     if (!repo) throw new ORPCError("NOT_FOUND", { message: "Repo not found" });
     return repo;
+  };
+  const requireIteration = (id: number) => {
+    const it = db.getIteration(id);
+    if (!it) throw new ORPCError("NOT_FOUND", { message: "Iteration not found" });
+    return it;
   };
 
   return os.router({
@@ -148,48 +183,68 @@ export function createRouter(s: Services) {
         });
         return toRepoDto(db, repo);
       }),
-      update: os.repos.update.handler(({ input }) => {
-        requireRepo(input.id);
-        const repo = db.updateRepo(input.id, input.patch);
+      update: os.repos.update.handler(async ({ input }) => {
+        const current = requireRepo(input.id);
+        const patch = { ...input.patch };
+        // Blank fields clear the setting; clearing the folder switches local checkout off.
+        if (patch.setupCommand !== undefined) patch.setupCommand = patch.setupCommand || null;
+        if (patch.localCheckoutPath !== undefined) patch.localCheckoutPath = patch.localCheckoutPath || null;
+        if (patch.localCheckoutPath === null) patch.useLocalCheckout = false;
+        if (patch.localCheckoutPath) patch.localCheckoutPath = resolve(patch.localCheckoutPath.replace(/^~(?=$|\/)/, homedir()));
+        // The folder in use must be a clone of this repo, so the agent never works in the wrong one.
+        const useLocal = patch.useLocalCheckout ?? current.useLocalCheckout;
+        const folder = patch.localCheckoutPath !== undefined ? patch.localCheckoutPath : current.localCheckoutPath;
+        if (useLocal && (patch.useLocalCheckout || patch.localCheckoutPath)) {
+          if (!folder) throw new ORPCError("BAD_REQUEST", { message: "Choose your checkout first" });
+          if (!isAbsolute(folder) || !existsSync(folder) || !statSync(folder).isDirectory()) {
+            throw new ORPCError("BAD_REQUEST", { message: `${folder} isn't a folder` });
+          }
+          if (!existsSync(join(folder, ".git"))) throw new ORPCError("BAD_REQUEST", { message: `${folder} isn't a git checkout` });
+          if (!(await isCheckoutOf(s.git, folder, current.owner, current.name))) {
+            throw new ORPCError("BAD_REQUEST", { message: `${folder} isn't a clone of ${current.owner}/${current.name} (none of its remotes point there)` });
+          }
+        }
+        if (patch.iterationProfileId != null && db.getProfile(patch.iterationProfileId)?.kind !== "iteration") {
+          throw new ORPCError("BAD_REQUEST", { message: "Pick an iteration profile" });
+        }
+        const repo = db.updateRepo(input.id, patch);
         s.bus.publish("app", { kind: "config", what: "repos" });
         s.store.prsChanged();
         s.scheduler.tick();
+        s.iterations.replanRepo(repo.id);
         return toRepoDto(db, repo);
       }),
       remove: os.repos.remove.handler(async ({ input }) => {
         const repo = requireRepo(input.id);
         s.scheduler.stopRepo(repo.id);
+        s.iterations.stopRepo(repo.id);
         db.deleteRepo(repo.id);
         s.bus.publish("app", { kind: "config", what: "repos" });
         s.store.prsChanged();
         await rm(join(s.paths.worktrees, repo.owner, repo.name), { recursive: true, force: true });
+        await rm(join(s.paths.worktrees, "iterations", repo.owner, repo.name), { recursive: true, force: true });
         await rm(s.paths.cloneDir(repo.owner, repo.name), { recursive: true, force: true });
       }),
-      openPrs: os.repos.openPrs.handler(({ input }) =>
-        db
-          .listPrsForRepo(input.id)
-          .filter((p) => p.state === "open")
-          .map((p) => ({ number: p.number, title: p.title, author: p.author, isDraft: p.isDraft })),
-      ),
-      setManualPrs: os.repos.setManualPrs.handler(({ input }) => {
+      pickCheckout: os.repos.pickCheckout.handler(async ({ input }) => {
         const repo = requireRepo(input.id);
-        const before = db.getManualPrs(repo.id);
-        db.setManualPrs(repo.id, input.numbers);
-        const added = input.numbers.filter((n) => !before.has(n));
-        if (repo.scope === "manual" && added.length > 0) s.scheduler.onManualPicks(repo, added);
-        s.bus.publish("app", { kind: "config", what: "repos" });
-        s.store.prsChanged();
-        return toRepoDto(db, repo);
+        return s.pickFolder({
+          title: `Local checkout of ${repo.owner}/${repo.name}`,
+          message: "Choose your checkout of this repository. Iterations run there, on the PR's branch.",
+          defaultPath: repo.localCheckoutPath ?? (existsSync(join(homedir(), "Code")) ? join(homedir(), "Code") : homedir()),
+        });
       }),
     },
 
     profiles: {
       list: os.profiles.list.handler(() => db.listProfiles()),
       save: os.profiles.save.handler(({ input }) => {
-        if (input.entry.type === "skill" && !db.getSkill(input.entry.skillId)) {
+        const existing = input.id !== undefined ? db.getProfile(input.id) : null;
+        const kind = existing?.kind ?? input.kind;
+        if (kind === "review" && !input.entry) throw new ORPCError("BAD_REQUEST", { message: "A review profile needs a prompt or a skill" });
+        if (input.entry?.type === "skill" && !db.getSkill(input.entry.skillId)) {
           throw new ORPCError("BAD_REQUEST", { message: "Pick a skill for this profile" });
         }
-        const saved = db.saveProfile(input);
+        const saved = db.saveProfile({ ...input, kind, entry: kind === "iteration" ? null : input.entry });
         s.bus.publish("app", { kind: "config", what: "profiles" });
         return saved;
       }),
@@ -203,12 +258,17 @@ export function createRouter(s: Services) {
       }),
       models: os.profiles.models.handler(() => s.models()),
       outputContract: os.profiles.outputContract.handler(() => OUTPUT_CONTRACT_SUMMARY),
+      iterationContract: os.profiles.iterationContract.handler(() => ITERATION_CONTRACT_SUMMARY),
     },
 
     skills: {
       list: os.skills.list.handler(async () => Promise.all(db.listSkills().map((sk) => skillDto(sk.id)))),
       importFromDialog: os.skills.importFromDialog.handler(async () => {
-        const dir = await s.pickFolder(join(homedir(), ".claude", "skills"));
+        const dir = await s.pickFolder({
+          title: "Import a skill folder",
+          message: "Choose a folder that contains SKILL.md",
+          defaultPath: join(homedir(), ".claude", "skills"),
+        });
         if (!dir) return null;
         const skill = await s.skills.importFolder(dir);
         s.bus.publish("app", { kind: "config", what: "skills" });
@@ -245,8 +305,8 @@ export function createRouter(s: Services) {
         transcriptsBytes: await diskUsage(s.paths.transcripts),
       })),
       clearWorktreeCache: os.settings.clearWorktreeCache.handler(async () => {
-        if (s.scheduler.runningCount > 0) {
-          throw new ORPCError("CONFLICT", { message: "Reviews are running. Pause the queue and wait for them to finish first." });
+        if (s.scheduler.runningCount > 0 || s.iterations.runningCount > 0) {
+          throw new ORPCError("CONFLICT", { message: "Runs are in progress. Pause the queue and wait for them to finish first." });
         }
         const before = (await diskUsage(s.paths.repos)) + (await diskUsage(s.paths.worktrees));
         await rm(s.paths.worktrees, { recursive: true, force: true });
@@ -262,7 +322,7 @@ export function createRouter(s: Services) {
         const pr = requirePr(input.id);
         const repo = requireRepo(pr.repoId);
         const item = listPrItems(db, s.viewerLogin()).find((p) => p.id === pr.id);
-        const profile = (repo.profileId !== null ? db.getProfile(repo.profileId) : null) ?? db.getDefaultProfile();
+        const profile = (repo.profileId !== null ? db.getProfile(repo.profileId) : null) ?? db.getDefaultProfile("review");
         const runs = db.listReviewsForPr(pr.id);
         return {
           ...(item ?? {
@@ -278,11 +338,15 @@ export function createRouter(s: Services) {
             url: pr.url,
             headSha: pr.headSha,
             inScope: false,
-            repoEnabled: repo.enabled,
+            reviewsOn: repo.reviewEnabled,
+            autoReview: false,
+            repoEnabled: repo.reviewEnabled || repo.iterationEnabled,
             status: "not_reviewed" as const,
             headUnreviewed: false,
             latestReviewId: runs[0]?.id ?? null,
             latestError: null,
+            iterationEligible: false,
+            iteration: null,
             lastActivityAt: pr.lastActivityAt,
           }),
           body: pr.body,
@@ -295,6 +359,10 @@ export function createRouter(s: Services) {
           createdAt: pr.createdAt,
           profileName: profile?.name ?? null,
           runs: runs.map(toRunSummary),
+          iterations: db
+            .listIterationsForPr(pr.id)
+            .filter((i) => i.mergedInto === null)
+            .map(toIterationSummary),
         };
       }),
       files: os.prs.files.handler(async ({ input }) => {
@@ -326,28 +394,10 @@ export function createRouter(s: Services) {
       cancel: os.reviews.cancel.handler(({ input }) => s.scheduler.cancel(input.reviewId)),
       transcript: os.reviews.transcript.handler(async ({ input }) => {
         const r = db.getReview(input.id);
-        const path = r?.transcriptPath ?? s.paths.transcript(input.id);
-        if (!existsSync(path)) return { entries: [], truncated: false };
-        const lines = (await readFile(path, "utf8")).split("\n").filter(Boolean);
-        const max = 3000;
-        const entries: TranscriptEntry[] = lines.slice(0, max).map((line, index) => {
-          let obj: Record<string, unknown>;
-          try {
-            obj = JSON.parse(line) as Record<string, unknown>;
-          } catch {
-            obj = { type: "unparsed" };
-          }
-          return { index, ...summarizeTranscriptLine(obj), raw: line.length > 50_000 ? `${line.slice(0, 50_000)}…` : line };
-        });
-        return { entries, truncated: lines.length > max };
+        return readTranscript(r?.transcriptPath ?? s.paths.transcript(input.id));
       }),
       steps: os.reviews.steps.handler(({ input }) =>
-        db.listActivityForReview(input.id, { kind: "agent.step" }).map((a) => ({
-          id: a.id,
-          reviewId: input.id,
-          ts: a.ts,
-          step: { kind: (a.data?.kind as never) ?? "other", label: a.message, ...(a.data?.detail ? { detail: String(a.data.detail) } : {}) },
-        })),
+        db.listActivityForReview(input.id, { kind: "agent.step" }).map((a) => toStepEvent(a, { reviewId: input.id })),
       ),
       activity: os.reviews.activity.handler(async function* ({ input, signal }) {
         // Subscribe first so nothing falls between the backlog read and the live feed.
@@ -368,15 +418,53 @@ export function createRouter(s: Services) {
         let last = 0;
         for (const a of db.listActivityForReview(input.reviewId, { kind: "agent.step" })) {
           last = a.id;
-          yield {
-            id: a.id,
-            reviewId: input.reviewId,
-            ts: a.ts,
-            step: { kind: (a.data?.kind as never) ?? "other", label: a.message, ...(a.data?.detail ? { detail: String(a.data.detail) } : {}) },
-          };
+          yield toStepEvent(a, { reviewId: input.reviewId });
         }
         for await (const e of live) {
           if (e.reviewId !== input.reviewId || e.id <= last) continue;
+          yield e;
+        }
+      }),
+    },
+
+    iterations: {
+      get: os.iterations.get.handler(({ input }) => {
+        const it = requireIteration(input.id);
+        const pr = requirePr(it.prId);
+        return toIterationDetail(db, it, requireRepo(pr.repoId));
+      }),
+      feedback: os.iterations.feedback.handler(({ input }) => {
+        const pr = requirePr(input.prId);
+        return toFeedbackPanel(db, pr, requireRepo(pr.repoId), s.viewerLogin(), db.getSettings());
+      }),
+      iterate: os.iterations.iterate.handler(({ input }) => toIterationSummary(s.iterations.iterate(input.prId))),
+      push: os.iterations.push.handler(({ input }) => toIterationSummary(s.iterations.push(input.id))),
+      discard: os.iterations.discard.handler(({ input }) => s.iterations.discard(input.id)),
+      uncommit: os.iterations.uncommit.handler(({ input }) => s.iterations.uncommit(input.id)),
+      rerun: os.iterations.rerun.handler(({ input }) => toIterationSummary(s.iterations.rerun(input.id, { worktree: input.worktree }))),
+      cancel: os.iterations.cancel.handler(({ input }) => s.iterations.cancel(input.id)),
+      diff: os.iterations.diff.handler(async ({ input }) => {
+        requireIteration(input.id);
+        const path = s.paths.iterationDiff(input.id);
+        if (!existsSync(path)) return [];
+        return parseDiff(await readFile(path, "utf8"));
+      }),
+      transcript: os.iterations.transcript.handler(async ({ input }) => {
+        const it = db.getIteration(input.id);
+        return readTranscript(it?.transcriptPath ?? s.paths.iterationTranscript(input.id));
+      }),
+      steps: os.iterations.steps.handler(({ input }) =>
+        db.listActivityForIteration(input.id, { kind: "agent.step" }).map((a) => toStepEvent(a, { iterationId: input.id })),
+      ),
+      agentSteps: os.iterations.agentSteps.handler(async function* ({ input, signal }) {
+        const live = s.bus.subscribe("step", { signal });
+        let last = 0;
+        for (const a of db.listActivityForIteration(input.iterationId, { kind: "agent.step" })) {
+          last = a.id;
+          yield toStepEvent(a, { iterationId: input.iterationId });
+        }
+        for await (const e of live) {
+          if (e.iterationId !== input.iterationId || e.id <= last) continue;
           yield e;
         }
       }),

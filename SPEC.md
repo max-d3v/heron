@@ -10,12 +10,13 @@ Audience for v1: **only me**. Every choice must still allow a **public** release
 
 **In v1**
 - Claude only, through the **TypeScript Claude Agent SDK**.
-- Repo scopes: All PRs / Only mine / Manual (hand-picked PRs).
+- Repo scopes: All PRs / Only mine / Manual (every PR listed, reviewed only on Review now).
 - Automatic re-review on every push (debounced). Draft handling configurable per repo.
 - Named review profiles: prompt **or** skill, plus model, effort and limits.
 - Reviews **auto-post** as a GitHub `COMMENT` review under the user's own identity.
 - Live UI: pickup, progress and agent steps stream into the app as they happen.
 - Durable pipeline: a persisted state machine with retries and crash/quit recovery.
+- **Iterations** (§15): an agent addresses review feedback on your own PRs, and Heron commits and pushes the result.
 - Menu bar icon, launch-at-login toggle.
 
 **Not in v1**
@@ -23,8 +24,8 @@ Audience for v1: **only me**. Every choice must still allow a **public** release
 - An "agent posts directly" mode (dropped).
 - Approving reviews before posting (everything auto-posts).
 - APPROVE / REQUEST_CHANGES verdicts (always `COMMENT`).
-- Installing dependencies or running setup in worktrees (reviews are of the code only).
-- A full diff viewer (use "Open on GitHub").
+- Installing dependencies or running setup for reviews (reviews are of the code only). Iterations may run a setup command (§15.5).
+- A full diff viewer for the PR (use "Open on GitHub"). The Iteration tab shows only its own commit's diff.
 - Running in the background after Quit.
 - Tests.
 - Signing, notarization, auto-update (planned for the public release).
@@ -98,17 +99,18 @@ Dependency rules:
 | Field | Notes |
 |---|---|
 | `owner/name` | Picked from the user's accessible repos (via `gh` token) |
-| `scope` | `all` \| `mine` \| `manual` |
-| `manualPrs` | For `manual`: PRs picked from the repo's open PR list |
-| `includeDrafts` | Default **off**. A manually picked draft is always reviewed. |
+| `scope` | `all` \| `mine` \| `manual`. `manual` lists every open PR but never starts a review on its own: reviews start with **Review now**. |
+| `includeDrafts` | Default **off**. Not shown for `manual`. |
 | `profileId` | `null` → default profile |
 | `trustRepoClaudeConfig` | Default **off**. When on, also loads the repo's `.claude/` (`settingSources` gains `project`). |
-| `enabled` | Pause one repo |
+| `reviewEnabled` | Turn reviews off for one repo (iterations have their own switch, §15.2) |
+| Iteration fields | See §15.2 |
 
-### Review profiles (Settings → Profiles)
+### Profiles (Settings → Profiles)
 | Field | Notes |
 |---|---|
-| `name`, `isDefault` | Exactly one default |
+| `kind` | `review` \| `iteration`. Iteration profiles have no `entry` (§15.2). |
+| `name`, `isDefault` | Exactly one default per kind |
 | `entry` | `{ type: "prompt", markdown }` **or** `{ type: "skill", skillId }` |
 | `model` | Alias (`opus`/`sonnet`/`haiku`) or a custom model ID |
 | `effort` | Levels as exposed by the installed SDK |
@@ -123,7 +125,7 @@ The prompt page shows a **read-only "Output contract" box** under the editor. It
 - Each run stores the skill's content hash in its snapshot.
 
 ### General settings
-Parallel runs (default 2), poll interval (default 10s), debounce (default 5s), dry run (default off), launch at login (default off), notifications on posted/failed, clear worktree cache (shows disk usage).
+Parallel runs (default 2), poll interval (default 10s), debounce (default 5s), iteration debounce (default 30s), iteration loop cap (default 3), dry run (default off), launch at login (default off), notifications on posted/failed, clear worktree cache (shows disk usage).
 
 ---
 
@@ -144,7 +146,7 @@ Parallel runs (default 2), poll interval (default 10s), debounce (default 5s), d
 ### 6.1 States
 ```
 debouncing → queued → preparing → running → validating → posting → posted
-                                                          ↘ completed (dry run)
+                                                          ↘ completed (dry run, or nothing to post)
 any → failed | superseded | cancelled
 ```
 Each `reviews` row stores: `state, runAfter, attempt, lastError, pid, sessionId, profileSnapshot, resolvedModel, transcriptPath, outputJson, githubReviewId`.
@@ -164,6 +166,7 @@ Every step is **idempotent** and saves its output before changing state.
    - Check each inline comment against the diff. Comments on lines outside the diff move into the body as `path:line — text`.
 4. **posting**
    - If dry run → `completed`.
+   - If the output has an empty body and no comments (no issues found) → `completed`, with nothing posted. The `heron/review` check still turns green ("No issues found").
    - Otherwise **look for an existing review with our marker** for this SHA. If one exists, record it and move to `posted`; if not, `POST` the review with `event: COMMENT`.
 
 ### 6.3 Errors and retries
@@ -230,12 +233,13 @@ Mirrors GitHub's review format. **No extra fields** (the format is the user's ch
   }>
 }
 ```
+An empty `body` with no `comments` means no issues were found: nothing is posted (§6.2).
 The posted body gets a hidden marker: `<!-- heron:review sha=<headSha> id=<reviewId> -->`.
 
 ### 7.5 Isolation (best effort; the agent has full tools)
 - Remove `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_*` from the environment.
 - Set `GH_CONFIG_DIR` to an empty temp folder, so `gh` appears logged out (its token is in the Keychain).
-- Edits the agent makes stay in the throwaway worktree and are never pushed.
+- Edits a reviewing agent makes stay in the throwaway worktree and are never pushed. Iterations push the agent's edits, but Heron does the commit and push, never the agent (§15.6).
 - Show a one-time warning when enabling `all` scope: "the agent runs with full tools on other people's code on this Mac."
 
 ### 7.6 Live steps
@@ -249,6 +253,7 @@ Map SDK messages to `AgentStep`s: `Reading src/auth.ts`, `Searching "token"`, `R
 - **Polling:** `GET /repos/{o}/{r}/pulls?state=open` per enabled repo, every 60s, with `If-None-Match` (a `304` doesn't count toward the rate limit). Compare against `prs` and emit `PrObserved`, `HeadShaChanged`, `DraftChanged` and `PrClosed` changes.
 - **"Mine" filter:** the PR author equals the authenticated user's login.
 - **Posting:** `POST /pulls/{n}/reviews` with `commit_id = headSha`, `event: "COMMENT"`, body and comments.
+- **Iterations** (§15): fetch the conversation of an eligible PR when its `updated_at` changes, and reply on its inline threads with `POST /pulls/{n}/comments/{id}/replies` (addressed ones after a push).
 
 ---
 
@@ -256,6 +261,8 @@ Map SDK messages to `AgentStep`s: `Reading src/auth.ts`, `Searching "token"`, `R
 
 - **Clones:** app-managed partial clones (`--filter=blob:none`) in `Application Support/Heron/repos/<owner>/<name>`, authenticated with the `gh` token over HTTPS.
 - **Per-PR worktrees:** `git fetch origin pull/N/head`, then `git worktree add` in `Application Support/Heron/worktrees/<owner>/<name>/<n>`. Reset to the new SHA on a push. **Remove when the PR closes or merges.**
+- **Iteration worktrees** (§15.5): a second per-PR worktree in `Application Support/Heron/iteration-worktrees/<owner>/<name>/<n>`, removed on the same terms. Results are kept on `refs/heron/iterations/<id>`.
+- **Push** (iterations only): the iteration commit to the PR's head branch, with the same token setup as fetches. Never forced.
 - Uses the user's `git` binary.
 
 ---
@@ -263,14 +270,20 @@ Map SDK messages to `AgentStep`s: `Reading src/auth.ts`, `Searching "token"`, `R
 ## 10. Data model (SQLite)
 
 ```
-repos(id, owner, name, scope, include_drafts, profile_id, trust_repo_claude_config, enabled, etag, created_at)
-manual_prs(repo_id, number)
-prs(id, repo_id, number, title, author, is_draft, head_sha, head_ref, base_ref, state, url, updated_at)
+repos(id, owner, name, scope, include_drafts, profile_id, trust_repo_claude_config, review_enabled, iteration_enabled, etag, created_at,
+      iteration_auto_start, iteration_comments, iteration_profile_id, iteration_auto_push, iteration_reply, setup_command, local_checkout_path)
+prs(id, repo_id, number, title, author, is_draft, head_sha, head_ref, head_repo, base_ref, state, url, updated_at,
+    heron_push_streak)
 reviews(id, pr_id, head_sha, state, run_after, attempt, last_error, pid, session_id,
         profile_snapshot_json, resolved_model, transcript_path, output_json,
         github_review_id, created_at, updated_at, last_activity_at)
-activity(id, pr_id, review_id, ts, kind, message, data_json)        -- append-only timeline
-profiles(id, name, is_default, entry_type, prompt_md, skill_id, model, effort, timeout_min, max_turns)
+iterations(id, pr_id, head_sha, state, trigger, run_after, attempt, last_error, pid, session_id,
+           profile_snapshot_json, resolved_model, cwd_kind /*worktree|local*/, transcript_path, output_json,
+           commit_sha, created_at, updated_at, last_activity_at)
+feedback(id, pr_id, github_id, kind, thread_root_id, author, body, path, line, diff_hunk,
+         verdict, reason, iteration_id, status, created_at, handled_at)    -- one row per GitHub comment
+activity(id, pr_id, review_id, iteration_id, ts, kind, message, data_json)  -- append-only timeline
+profiles(id, kind, name, is_default, entry_type, prompt_md, skill_id, model, effort, timeout_min, max_turns)
 skills(id, name, source /*imported|linked*/, path, content_hash)
 settings(key, value_json)
 ```
@@ -281,8 +294,8 @@ Migrations live in `packages/db`. Each state change and its `activity` row are w
 ## 11. RPC (`packages/rpc`)
 
 oRPC over a `MessagePort` handed to the renderer through the preload script. Zod contracts are shared by both sides.
-- Queries/mutations: `repos.*`, `profiles.*`, `skills.*`, `settings.*`, `prs.list`, `prs.get`, `reviews.get`, `reviews.reviewNow`, `reviews.rerun`, `queue.pause/resume`, `doctor.check`.
-- **Streams** (async iterators): `prs.watch()`, `reviews.activity(prId)`, `reviews.agentSteps(reviewId)`, `queue.status()`.
+- Queries/mutations: `repos.*`, `profiles.*`, `skills.*`, `settings.*`, `prs.list`, `prs.get`, `reviews.get`, `reviews.reviewNow`, `reviews.rerun`, `iterations.list/get/diff`, `iterations.start/push/discard/rerun`, `feedback.list`, `queue.pause/resume`, `doctor.check`.
+- **Streams** (async iterators): `prs.watch()`, `reviews.activity(prId)`, `reviews.agentSteps(reviewId)`, `iterations.agentSteps(iterationId)`, `queue.status()`.
 
 ---
 
@@ -291,20 +304,21 @@ oRPC over a `MessagePort` handed to the renderer through the preload script. Zod
 Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`, system font, follows light/dark mode. Tailwind + Radix, styled to look like macOS rather than a web dashboard.
 
 **Main window**
-- **Sidebar:** a flat list sorted by **latest review activity**. Each row: live status dot (queued, running with spinner, posted, failed, not reviewed), title, `repo#n`, author avatar, relative time. At the top: repo filter + search. At the bottom: ⚙ Settings.
+- **Sidebar:** a flat list sorted by **latest review activity**. Each row: live status dot (queued, running with spinner, posted, failed, not reviewed), an iteration badge (§15.8), title, `repo#n`, author avatar, relative time. At the top: repo filter + search. At the bottom: ⚙ Settings.
 - **Detail header:** title, `owner/repo#n`, author, `head → base`, short SHA. Buttons: Open on GitHub, Review now, Re-run.
 - **Tabs:**
   - **Review:** body (markdown), then inline comments grouped by file, each with nearby diff lines. No badges; it's all user-formatted markdown.
-  - **Activity:** live timeline.
-  - **Runs:** one row per SHA reviewed (profile, model, effort, state, duration). Click to view that run.
+  - **Activity:** live timeline, including feedback and iteration events.
+  - **Iteration:** feedback and the latest iteration's diff (§15.8).
+  - **Runs:** one row per SHA reviewed (profile, model, effort, state, duration), plus a separate Iterations section. Click to view that run.
   - **Transcript:** collapsed raw transcript.
   - The PR itself: description + changed files with +/− counts.
 
-**Settings:** Repos (scope, drafts, manual PR picker, profile, trust toggle), Profiles (prompt editor **or** skill picker, model, effort, limits, read-only output contract box), Skills (import/link, edit `SKILL.md`), General.
+**Settings:** Repos (Review and Iteration sections with their own switches; scope, drafts, profile, trust toggle), Profiles (review or iteration kind; prompt editor **or** skill picker, model, effort, limits, read-only output contract box), Skills (import/link, edit `SKILL.md`), General.
 
 **First run / Doctor:** checks `git`, `gh` (installed and logged in), and `claude` (installed and logged in), each with a fix hint. The queue doesn't start until all are green.
 
-**Menu bar icon:** status (idle / N running / paused + reason). Menu: Open, Pause all / Resume, Quit.
+**Menu bar icon:** status (idle / N running / paused + reason, N ready to push). Menu: Open, Pause all / Resume, Quit.
 
 **Lifecycle:** closing the window keeps the app running (Dock + tray). **Quit stops everything.** Launch-at-login toggle.
 
@@ -325,7 +339,130 @@ Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`,
 - The plugin manifest needed for `heronPluginDir`, and the resulting skill names (`heron:<name>`).
 - oRPC's current Electron / MessagePort adapter API.
 - The SDK's message type for usage limits and its reset time, used to pause the queue.
+- That a new review, inline comment or conversation comment bumps the PR's `updated_at` in the open-PR list, so iterations can detect feedback without polling each PR (§15.3).
+- That a Haiku, `effort: "low"`, no-tools, one-turn `query()` with `outputFormat` works for triage on a subscription login (§15.4).
 
-## 15. Open questions
+---
+
+## 15. Iterations
+
+An agent addresses review feedback on **your own PRs**, and Heron commits and pushes the result. A quick triage call first sets aside comments that don't ask for a change.
+
+### 15.1 Eligibility
+- Open PRs **you opened** (author = the `gh` login), from a branch in the same repo. **Forks are skipped.** Drafts are included.
+- The repo's review `scope` doesn't apply. Settings → Repos says so ("Runs only on PRs you opened"), and the Iteration tab shows it as the empty state on other people's PRs.
+
+### 15.2 Configuration
+Repos (Settings → Repos): the **Review** and **Iteration** sections each have their own on/off switch (`reviewEnabled`, on by default; `iterationEnabled`, off by default). A repo with both off isn't polled. Iteration fields:
+| Field | Notes |
+|---|---|
+| `iterationAutoStart` | "Automatic iteration": Manual (default) \| Automatic. Whether the agent starts on its own after triage (§15.3). Shown first. |
+| `iterationComments` | "Comments to iterate on": `all` (default) \| `mine`. Which comments count (§15.3). |
+| `iterationProfileId` | `null` → default iteration profile |
+| `iterationAutoPush` | Default **off**: the result waits for **Push**. |
+| `iterationReply` | Default **on**: reply on each addressed thread after a push, and on each thread the agent didn't address with its reason. |
+| `setupCommand` | e.g. `pnpm install`, run in the iteration worktree before the agent. Disabled, with a note, while `useLocalCheckout` is on. |
+| `useLocalCheckout` | Default **off**: Heron works in its own clone. On: run the agent in your own checkout instead (§15.5). Switching it on reuses the folder chosen before, or opens a folder picker; the path can also be typed. |
+| `localCheckoutPath` | The checkout. It must be a clone of the repo (a remote points at `github.com/<owner>/<name>`), checked when it's saved or switched on. Kept while the switch is off. |
+
+- **Profiles** gain `kind: "review" | "iteration"`, with one default per kind. Iteration profiles have **no entry** (no prompt or skill), only `model`, `effort`, `timeoutMin` (default 30) and `maxTurns` (default 150). Their page shows the fixed prompt and the output contract read-only.
+- **General:** iteration debounce (default 30s), loop cap (default 3).
+- **Dry run:** no pushes and no replies; **Push** is disabled.
+
+### 15.3 Feedback
+- **Kinds:** review bodies, inline review comments, replies in threads, and conversation comments.
+- **`iterationComments`:**
+  - `all`: anyone's, bots included.
+  - `mine`: comments under your login, which includes Heron's reviews (they post as you).
+  - Only these comments are triaged and listed in the Iteration tab.
+- **`iterationAutoStart`:** on, the agent starts on its own after triage. Off (manual), triage runs as usual and the agent waits for **Iterate**.
+- Heron's iteration replies carry `<!-- heron:iteration id=<id> -->` and never count. Heron's reviews count like any other comment.
+- **Detection:** when the poller sees an eligible PR's `updated_at` change, fetch its conversation and record new comments in `feedback`.
+- **No backfill exception:** existing PRs and comments follow the same rules as new ones. Outdated inline comments are included; the agent checks them against the current code.
+- **Debounce:** a batch starts `iterationDebounce` after the newest unhandled comment. Each new comment resets it.
+- **Handled:** a comment is handled once triage marks it `no-change`, or once it was part of an iteration that ended `pushed`, `no_changes`, `discarded` or `uncommitted`. Handled comments are never triaged or sent again. A new reply in a thread makes that thread unhandled again, and the whole thread is sent.
+
+### 15.4 Triage
+- One Agent SDK call: Haiku, effort `low`, no tools, one turn, structured output. It runs in every mode and doesn't take a parallel-run slot.
+- **Input** per comment: body, kind, author, and for inline comments `path`/`line`, `diff_hunk` and the thread. Plus the PR title.
+- **Output:** `{ verdicts: [{ id, verdict: "change" | "no-change", reason }] }`. `no-change` covers questions, praise, acks and things already done.
+- Triage only sets aside comments there's nothing to do for. It doesn't judge whether a finding is right; the agent does.
+- Every `change` comment goes to the agent. There's no per-comment picking and no override.
+- Nothing to change → the batch ends `skipped`.
+
+### 15.5 Agent run
+- **Worktree mode** (default): a separate worktree per PR in `Application Support/Heron/worktrees/iterations/<owner>/<name>/<n>`, independent of the review worktree. Each run checks out the PR head, runs `clean -ffdx`, then the full `setupCommand` if set. Setup failure → `failed` with its output, no retry. Setup time counts toward the timeout.
+- **Local checkout mode** (`useLocalCheckout` on): the checkout must be on the PR's head branch, have a clean working tree, and have `HEAD` = the PR's `headSha`. If any check fails → `failed` with the reason. No setup command runs. A failed iteration in this mode offers **Re-run in a worktree**: the re-run (and its re-run if it goes stale) uses Heron's worktree and the setup command, leaving the local checkout alone; the repo setting doesn't change.
+- **Context files** go in `Application Support/Heron/iterations/<id>/`, outside the checkout in both modes: `pr.json`, `pr.diff`, `pr-comments.json`, `feedback.json`.
+- **User message:** an iteration version of the copy prompt (`ALL_ISSUES` in `core/issue-copy-prompt.ts`, without the sentence about replying in threads and resolving them), then numbered `<violation>` blocks. Inline comments are grouped by `<file>`; review bodies and conversation comments go in a general group.
+- **System prompt append:** PR context; where the context files are; "don't commit, push or switch branches — Heron does that"; `gh` is unavailable; when setup ran or in local checkout mode, it may run tests and typecheck, otherwise the reviews' "dependencies are not installed" line; the output contract.
+- **SDK options and isolation** as §7.1 and §7.5, with the iteration profile and this output contract:
+```ts
+{
+  commitTitle: string,  // a Conventional Commit header: "type(scope): description"
+  items: Array<{ number: number, status: "addressed" | "not_addressed", note: string }>,
+}
+```
+
+### 15.6 Commit, push, reply
+- **Commit** (Heron, never the agent). If the agent committed anyway, soft-reset to the PR head first. Then `git add -A` and one commit with your git identity:
+  - title: `commitTitle`, in [Conventional Commits](https://www.conventionalcommits.org) form: `type(scope)!: description`, with `type` one of `fix`, `feat`, `refactor`, `perf`, `test`, `docs`, `style`, `build`, `ci`, `chore`, `revert` (`COMMIT_TYPES`), the scope and `!` optional. The output schema enforces it, so the SDK asks the agent to fix a title that doesn't match.
+  - body: a link and the note for each addressed comment
+  - trailer: `Heron-Iteration: <id>`
+- The commit is also kept on `refs/heron/iterations/<id>` in Heron's clone (fetched from the checkout in local mode), so a reset never loses it.
+- **No changes** → `no_changes`: no commit. When there are `not_addressed` inline threads to answer, it goes through `replying` first.
+- **Push:** `git push https://github.com/<owner>/<name> <sha>:refs/heads/<headRef>` with the `gh` token (§9), never forced, in both modes. Auto-push on → right away. Off → `ready` until **Push**, **Discard** or, in local checkout mode, **Uncommit** (`git reset --soft` to the PR head on the local checkout, so the changes stay staged for you to finish; Heron pushes and replies nothing).
+- **Head moved** (a non-fast-forward rejection, or a new `headSha` while in flight or `ready`) → `stale`. A new iteration with the same comments goes straight to `queued`, with no triage and no click.
+- **403 / branch protection** → `failed`, no retry.
+- **Replies** (`iterationReply` on, never in dry run): on each addressed inline thread, `Addressed in abc1234 — <note>` with the hidden marker, then resolve the thread (GraphQL `resolveReviewThread`; a thread that's already resolved is left alone). On each `not_addressed` inline thread, `Not addressed — <note>` with the marker, and the thread stays open: a reply from the reviewer reopens it (§15.3) and the agent sees its earlier reason in the thread. Not-addressed replies go out with the addressed ones after the push, or right away when there's no commit; a discarded result posts nothing. An item the agent left out of its output gets no reply. Look for the marker first, so a retry never posts twice. A reply or resolve GitHub refuses (deleted comment, no permission) is logged in Activity and doesn't fail the iteration. No reply for review bodies or conversation comments; those notes stay in the app.
+- **Loop cap:** Heron records each SHA it pushes. After `loopCap` Heron pushes in a row with no other push, the PR behaves as manual start until someone else pushes, and the Iteration tab says so. If the PR isn't in the repo's review scope, Heron never reviews the iteration commit, so the loop ends after one push anyway.
+
+### 15.7 States
+```
+debouncing → triaging ─┬→ skipped                    nothing to change
+                       ├→ awaiting_start → queued    manual start or loop cap; you click Iterate
+                       ├→ held → queued              another iteration on the PR is in flight or ready
+                       └→ queued
+queued → preparing → running → committing ─┬→ no_changes
+                                            ├→ replying → no_changes        no commit, but threads to answer
+                                            ├→ ready ─┬→ pushing (Push)
+                                            │         ├→ discarded (Discard)
+                                            │         └→ uncommitted (Uncommit; local checkout only)
+                                            └→ pushing → replying → pushed
+any → failed | stale | cancelled
+```
+- Per PR, at most one iteration is between `queued` and `ready`. Batches waiting behind it are merged into one run.
+- Reviews and iterations on the same PR run independently. An iteration push supersedes a running review (§5).
+- Errors and retries as §6.3, recovery as §6.4.
+
+### 15.8 Data model
+```
+repos      + iteration_auto_start, iteration_comments, iteration_profile_id, iteration_auto_push, iteration_reply, setup_command, local_checkout_path
+profiles   + kind ('review' | 'iteration'); one default per kind
+prs        + head_repo (fork detection), heron_push_streak (loop cap), feedback_synced_at
+iterations(id, pr_id, state, trigger_kind, head_sha, run_after, attempt, retry_step, last_error, pid, session_id,
+           profile_snapshot_json, resolved_model, transcript_path, cwd_kind, items_json, output_json, raw_output,
+           commit_sha, triage_total, triage_change, merged_into, usage_json, started_at, finished_at, ...)
+feedback(id, pr_id, github_id, kind, thread_root_id, author, body, url, path, line, outdated, diff_hunk, review_state,
+         created_at, verdict, reason, iteration_id, status /*unhandled|handled|ignored*/, handled_at, observed_at)
+activity   + iteration_id; kinds feedback.* and iteration.*
+```
+A batch that's triaged while another one waits (`held` or `awaiting_start`) is merged into it: its comments move over and it ends `cancelled` with `merged_into` set.
+
+### 15.9 UI
+- **Iteration tab** (PR detail):
+  - **Feedback**, while a batch is open: each comment with author, location, verdict and reason. With manual start (or after the loop cap), an **Iterate** button, disabled while a result is `ready`.
+  - **Latest iteration** that ran the agent: live steps while running. Then the commit title, addressed and not-addressed items with their notes, a unified diff (collapsible files, no syntax highlighting), the commit link, **Push** / **Discard** / **Uncommit** (when `ready`; Uncommit in local checkout mode only) and **Re-run**.
+  - On other people's PRs: an empty state, "Iterations only run on PRs you opened".
+- **Runs:** separate Reviews and Iterations sections. An iteration row shows state, model, triage result ("4 of 6 to change"), addressed count, duration and commit. Clicking opens it in the Iteration tab. `skipped` batches appear here, never as the latest iteration.
+- **Transcript:** unchanged. For an iteration, the triage call(s) then the agent's turns.
+- **Activity:** feedback and iteration events next to review events.
+- **Sidebar:** a second badge per PR: feedback waiting / running / ready to push / failed.
+- **Menu bar:** "N ready to push".
+- **Notifications:** feedback waiting (manual start), ready to push and pushed under `notifyPosted`; failed under `notifyFailed`.
+
+---
+
+## 16. Open questions
 - **Fork PRs in `all` scope:** review them, or skip by default? (Not decided; untrusted code with full tools.)
 - Query layer for SQLite: raw SQL vs Drizzle.

@@ -4,11 +4,24 @@ import {
   type Activity,
   type ActivityKind,
   type EffortLevel,
+  type Feedback,
+  type FeedbackKind,
+  type FeedbackStatus,
+  type Iteration,
+  type IterationItem,
+  type IterationComments,
+  type IterationOutput,
+  type IterationSnapshot,
+  type IterationState,
+  type IterationStepState,
+  type IterationTrigger,
+  type ObservedFeedback,
   type ObservedPr,
   type Pr,
   type PrState,
   type Profile,
   type ProfileEntry,
+  type ProfileKind,
   type ProfileSnapshot,
   type Repo,
   type RepoScope,
@@ -22,6 +35,7 @@ import {
   type SkillSource,
   type StepState,
   type TokenUsage,
+  type TriageVerdict,
 } from "@heron/core";
 import { MIGRATIONS } from "./migrations.ts";
 
@@ -41,7 +55,16 @@ function toRepo(r: Row): Repo {
     includeDrafts: bool(r.include_drafts),
     profileId: num(r.profile_id),
     trustRepoClaudeConfig: bool(r.trust_repo_claude_config),
-    enabled: bool(r.enabled),
+    reviewEnabled: bool(r.review_enabled),
+    iterationEnabled: bool(r.iteration_enabled),
+    iterationAutoStart: bool(r.iteration_auto_start),
+    iterationComments: r.iteration_comments as IterationComments,
+    iterationProfileId: num(r.iteration_profile_id),
+    iterationAutoPush: bool(r.iteration_auto_push),
+    iterationReply: bool(r.iteration_reply),
+    setupCommand: str(r.setup_command),
+    useLocalCheckout: bool(r.use_local_checkout),
+    localCheckoutPath: str(r.local_checkout_path),
     etag: str(r.etag),
     initialSyncDone: bool(r.initial_sync_done),
     lastPolledAt: num(r.last_polled_at),
@@ -62,10 +85,13 @@ function toPr(r: Row): Pr {
     isDraft: bool(r.is_draft),
     headSha: String(r.head_sha),
     headRef: String(r.head_ref),
+    headRepo: str(r.head_repo),
     baseRef: String(r.base_ref),
     baseSha: String(r.base_sha),
     state: r.state as PrState,
     url: String(r.url),
+    heronPushStreak: Number(r.heron_push_streak ?? 0),
+    feedbackSyncedAt: num(r.feedback_synced_at),
     additions: num(r.additions),
     deletions: num(r.deletions),
     changedFiles: num(r.changed_files),
@@ -110,6 +136,7 @@ function toActivity(r: Row): Activity {
     id: Number(r.id),
     prId: num(r.pr_id),
     reviewId: num(r.review_id),
+    iterationId: num(r.iteration_id),
     ts: Number(r.ts),
     kind: r.kind as ActivityKind,
     message: String(r.message),
@@ -118,19 +145,81 @@ function toActivity(r: Row): Activity {
 }
 
 function toProfile(r: Row): Profile {
-  const entry: ProfileEntry =
-    r.entry_type === "skill"
-      ? { type: "skill", skillId: Number(r.skill_id ?? 0) }
-      : { type: "prompt", markdown: String(r.prompt_md ?? "") };
+  const kind = (r.kind as ProfileKind | null) ?? "review";
+  const entry: ProfileEntry | null =
+    kind === "iteration"
+      ? null
+      : r.entry_type === "skill"
+        ? { type: "skill", skillId: Number(r.skill_id ?? 0) }
+        : { type: "prompt", markdown: String(r.prompt_md ?? "") };
   return {
     id: Number(r.id),
     name: String(r.name),
+    kind,
     isDefault: bool(r.is_default),
     entry,
     model: String(r.model),
     effort: (r.effort as EffortLevel | null) ?? null,
     timeoutMin: Number(r.timeout_min),
     maxTurns: Number(r.max_turns),
+  };
+}
+
+function toIteration(r: Row): Iteration {
+  return {
+    id: Number(r.id),
+    prId: Number(r.pr_id),
+    state: r.state as IterationState,
+    trigger: r.trigger_kind as IterationTrigger,
+    headSha: str(r.head_sha),
+    runAfter: num(r.run_after),
+    attempt: Number(r.attempt),
+    retryStep: (r.retry_step as IterationStepState | null) ?? null,
+    lastError: str(r.last_error),
+    pid: num(r.pid),
+    sessionId: str(r.session_id),
+    profileSnapshot: json<IterationSnapshot>(r.profile_snapshot_json),
+    resolvedModel: str(r.resolved_model),
+    transcriptPath: str(r.transcript_path),
+    cwdKind: (r.cwd_kind as Iteration["cwdKind"]) ?? null,
+    items: json<IterationItem[]>(r.items_json),
+    output: json<IterationOutput>(r.output_json),
+    rawOutput: str(r.raw_output),
+    commitSha: str(r.commit_sha),
+    triageTotal: Number(r.triage_total),
+    triageChange: Number(r.triage_change),
+    mergedInto: num(r.merged_into),
+    usage: json<TokenUsage>(r.usage_json),
+    startedAt: num(r.started_at),
+    finishedAt: num(r.finished_at),
+    createdAt: Number(r.created_at),
+    updatedAt: Number(r.updated_at),
+    lastActivityAt: Number(r.last_activity_at),
+  };
+}
+
+function toFeedback(r: Row): Feedback {
+  return {
+    id: Number(r.id),
+    prId: Number(r.pr_id),
+    githubId: Number(r.github_id),
+    kind: r.kind as FeedbackKind,
+    threadRootId: Number(r.thread_root_id),
+    author: String(r.author),
+    body: String(r.body),
+    url: str(r.url),
+    path: str(r.path),
+    line: num(r.line),
+    outdated: bool(r.outdated),
+    diffHunk: str(r.diff_hunk),
+    reviewState: str(r.review_state),
+    createdAt: Number(r.created_at),
+    verdict: (r.verdict as TriageVerdict | null) ?? null,
+    reason: str(r.reason),
+    iterationId: num(r.iteration_id),
+    status: r.status as FeedbackStatus,
+    handledAt: num(r.handled_at),
+    observedAt: Number(r.observed_at),
   };
 }
 
@@ -187,9 +276,80 @@ const REVIEW_COLUMNS: Record<keyof ReviewPatch, [string, (v: never) => unknown]>
   finishedAt: ["finished_at", (v) => v],
 };
 
+/** Iteration fields that can be written directly (camelCase → column). */
+export interface IterationPatch {
+  state?: IterationState;
+  headSha?: string | null;
+  runAfter?: number | null;
+  attempt?: number;
+  retryStep?: IterationStepState | null;
+  lastError?: string | null;
+  pid?: number | null;
+  sessionId?: string | null;
+  profileSnapshot?: IterationSnapshot | null;
+  resolvedModel?: string | null;
+  transcriptPath?: string | null;
+  cwdKind?: Iteration["cwdKind"];
+  items?: IterationItem[] | null;
+  output?: IterationOutput | null;
+  rawOutput?: string | null;
+  commitSha?: string | null;
+  triageTotal?: number;
+  triageChange?: number;
+  mergedInto?: number | null;
+  usage?: TokenUsage | null;
+  startedAt?: number | null;
+  finishedAt?: number | null;
+}
+
+const asJson = (v: unknown) => (v === null ? null : JSON.stringify(v));
+
+const ITERATION_COLUMNS: Record<keyof IterationPatch, [string, (v: never) => unknown]> = {
+  state: ["state", (v) => v],
+  headSha: ["head_sha", (v) => v],
+  runAfter: ["run_after", (v) => v],
+  attempt: ["attempt", (v) => v],
+  retryStep: ["retry_step", (v) => v],
+  lastError: ["last_error", (v) => v],
+  pid: ["pid", (v) => v],
+  sessionId: ["session_id", (v) => v],
+  profileSnapshot: ["profile_snapshot_json", asJson],
+  resolvedModel: ["resolved_model", (v) => v],
+  transcriptPath: ["transcript_path", (v) => v],
+  cwdKind: ["cwd_kind", (v) => v],
+  items: ["items_json", asJson],
+  output: ["output_json", asJson],
+  rawOutput: ["raw_output", (v) => v],
+  commitSha: ["commit_sha", (v) => v],
+  triageTotal: ["triage_total", (v) => v],
+  triageChange: ["triage_change", (v) => v],
+  mergedInto: ["merged_into", (v) => v],
+  usage: ["usage_json", asJson],
+  startedAt: ["started_at", (v) => v],
+  finishedAt: ["finished_at", (v) => v],
+};
+
+/** Feedback fields the pipeline writes. */
+export interface FeedbackPatch {
+  verdict?: TriageVerdict | null;
+  reason?: string | null;
+  iterationId?: number | null;
+  status?: FeedbackStatus;
+  handledAt?: number | null;
+}
+
+const FEEDBACK_COLUMNS: Record<keyof FeedbackPatch, string> = {
+  verdict: "verdict",
+  reason: "reason",
+  iterationId: "iteration_id",
+  status: "status",
+  handledAt: "handled_at",
+};
+
 export interface NewActivity {
   prId: number | null;
   reviewId: number | null;
+  iterationId?: number | null;
   kind: ActivityKind;
   message: string;
   data?: Record<string, unknown> | null;
@@ -272,7 +432,7 @@ export class HeronDb {
 
   addRepo(input: { owner: string; name: string; scope: RepoScope; profileId: number | null }): Repo {
     const info = this.sql
-      .prepare("INSERT INTO repos (owner, name, scope, profile_id, created_at) VALUES (?, ?, ?, ?, ?)")
+      .prepare("INSERT INTO repos (owner, name, scope, profile_id, iteration_comments, created_at) VALUES (?, ?, ?, ?, 'all', ?)")
       .run(input.owner, input.name, input.scope, input.profileId, Date.now());
     return this.getRepo(Number(info.lastInsertRowid))!;
   }
@@ -286,7 +446,16 @@ export class HeronDb {
         | "includeDrafts"
         | "profileId"
         | "trustRepoClaudeConfig"
-        | "enabled"
+        | "reviewEnabled"
+        | "iterationEnabled"
+        | "iterationAutoStart"
+        | "iterationComments"
+        | "iterationProfileId"
+        | "iterationAutoPush"
+        | "iterationReply"
+        | "setupCommand"
+        | "useLocalCheckout"
+        | "localCheckoutPath"
         | "etag"
         | "initialSyncDone"
         | "lastPolledAt"
@@ -299,7 +468,16 @@ export class HeronDb {
     if (patch.includeDrafts !== undefined) cols.include_drafts = patch.includeDrafts ? 1 : 0;
     if (patch.profileId !== undefined) cols.profile_id = patch.profileId;
     if (patch.trustRepoClaudeConfig !== undefined) cols.trust_repo_claude_config = patch.trustRepoClaudeConfig ? 1 : 0;
-    if (patch.enabled !== undefined) cols.enabled = patch.enabled ? 1 : 0;
+    if (patch.reviewEnabled !== undefined) cols.review_enabled = patch.reviewEnabled ? 1 : 0;
+    if (patch.iterationEnabled !== undefined) cols.iteration_enabled = patch.iterationEnabled ? 1 : 0;
+    if (patch.iterationAutoStart !== undefined) cols.iteration_auto_start = patch.iterationAutoStart ? 1 : 0;
+    if (patch.iterationComments !== undefined) cols.iteration_comments = patch.iterationComments;
+    if (patch.iterationProfileId !== undefined) cols.iteration_profile_id = patch.iterationProfileId;
+    if (patch.iterationAutoPush !== undefined) cols.iteration_auto_push = patch.iterationAutoPush ? 1 : 0;
+    if (patch.iterationReply !== undefined) cols.iteration_reply = patch.iterationReply ? 1 : 0;
+    if (patch.setupCommand !== undefined) cols.setup_command = patch.setupCommand;
+    if (patch.useLocalCheckout !== undefined) cols.use_local_checkout = patch.useLocalCheckout ? 1 : 0;
+    if (patch.localCheckoutPath !== undefined) cols.local_checkout_path = patch.localCheckoutPath;
     if (patch.etag !== undefined) cols.etag = patch.etag;
     if (patch.initialSyncDone !== undefined) cols.initial_sync_done = patch.initialSyncDone ? 1 : 0;
     if (patch.lastPolledAt !== undefined) cols.last_polled_at = patch.lastPolledAt;
@@ -310,19 +488,6 @@ export class HeronDb {
 
   deleteRepo(id: number): void {
     this.sql.prepare("DELETE FROM repos WHERE id = ?").run(id);
-  }
-
-  getManualPrs(repoId: number): Set<number> {
-    const rows = this.sql.prepare("SELECT number FROM manual_prs WHERE repo_id = ?").all(repoId) as Row[];
-    return new Set(rows.map((r) => Number(r.number)));
-  }
-
-  setManualPrs(repoId: number, numbers: number[]): void {
-    this.tx(() => {
-      this.sql.prepare("DELETE FROM manual_prs WHERE repo_id = ?").run(repoId);
-      const ins = this.sql.prepare("INSERT OR IGNORE INTO manual_prs (repo_id, number) VALUES (?, ?)");
-      for (const n of numbers) ins.run(repoId, n);
-    });
   }
 
   // ── prs ─────────────────────────────────────────────────────────────────
@@ -346,13 +511,14 @@ export class HeronDb {
     this.sql
       .prepare(
         `INSERT INTO prs (repo_id, number, title, body, author, author_avatar_url, is_draft, head_sha, head_ref,
-                          base_ref, base_sha, state, url, created_at, updated_at, last_activity_at)
+                          head_repo, base_ref, base_sha, state, url, created_at, updated_at, last_activity_at)
          VALUES (@repoId, @number, @title, @body, @author, @avatar, @draft, @headSha, @headRef,
-                 @baseRef, @baseSha, 'open', @url, @createdAt, @updatedAt, @now)
+                 @headRepo, @baseRef, @baseSha, 'open', @url, @createdAt, @updatedAt, @now)
          ON CONFLICT(repo_id, number) DO UPDATE SET
            title = excluded.title, body = excluded.body, author = excluded.author,
            author_avatar_url = excluded.author_avatar_url, is_draft = excluded.is_draft,
-           head_sha = excluded.head_sha, head_ref = excluded.head_ref, base_ref = excluded.base_ref,
+           head_sha = excluded.head_sha, head_ref = excluded.head_ref, head_repo = excluded.head_repo,
+           base_ref = excluded.base_ref,
            base_sha = excluded.base_sha, state = 'open', url = excluded.url, updated_at = excluded.updated_at`,
       )
       .run({
@@ -365,6 +531,7 @@ export class HeronDb {
         draft: o.isDraft ? 1 : 0,
         headSha: o.headSha,
         headRef: o.headRef,
+        headRepo: o.headRepo,
         baseRef: o.baseRef,
         baseSha: o.baseSha,
         url: o.url,
@@ -376,8 +543,13 @@ export class HeronDb {
     return toPr(r);
   }
 
-  updatePr(id: number, patch: Partial<Pick<Pr, "state" | "additions" | "deletions" | "changedFiles" | "lastActivityAt">>): void {
+  updatePr(
+    id: number,
+    patch: Partial<Pick<Pr, "state" | "additions" | "deletions" | "changedFiles" | "lastActivityAt" | "heronPushStreak" | "feedbackSyncedAt">>,
+  ): void {
     const cols: Record<string, unknown> = {};
+    if (patch.heronPushStreak !== undefined) cols.heron_push_streak = patch.heronPushStreak;
+    if (patch.feedbackSyncedAt !== undefined) cols.feedback_synced_at = patch.feedbackSyncedAt;
     if (patch.state !== undefined) cols.state = patch.state;
     if (patch.additions !== undefined) cols.additions = patch.additions;
     if (patch.deletions !== undefined) cols.deletions = patch.deletions;
@@ -394,7 +566,7 @@ export class HeronDb {
   listPrRows(): PrListRow[] {
     const rows = this.sql
       .prepare(
-        `SELECT p.*, r.owner AS r_owner, r.name AS r_name, r.enabled AS r_enabled,
+        `SELECT p.*, r.owner AS r_owner, r.name AS r_name, (r.review_enabled OR r.iteration_enabled) AS r_enabled,
                 lr.id AS lr_id, lr.state AS lr_state, lr.head_sha AS lr_head_sha,
                 lr.updated_at AS lr_updated_at, lr.last_error AS lr_last_error,
                 (SELECT COUNT(*) FROM reviews x WHERE x.pr_id = p.id) AS review_count
@@ -508,10 +680,19 @@ export class HeronDb {
   appendActivity(a: NewActivity): Activity {
     const ts = a.ts ?? Date.now();
     const info = this.sql
-      .prepare("INSERT INTO activity (pr_id, review_id, ts, kind, message, data_json) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(a.prId, a.reviewId, ts, a.kind, a.message, a.data ? JSON.stringify(a.data) : null);
+      .prepare("INSERT INTO activity (pr_id, review_id, iteration_id, ts, kind, message, data_json) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(a.prId, a.reviewId, a.iterationId ?? null, ts, a.kind, a.message, a.data ? JSON.stringify(a.data) : null);
     if (a.prId !== null) this.touchPr(a.prId, ts);
-    return { id: Number(info.lastInsertRowid), prId: a.prId, reviewId: a.reviewId, ts, kind: a.kind, message: a.message, data: a.data ?? null };
+    return {
+      id: Number(info.lastInsertRowid),
+      prId: a.prId,
+      reviewId: a.reviewId,
+      iterationId: a.iterationId ?? null,
+      ts,
+      kind: a.kind,
+      message: a.message,
+      data: a.data ?? null,
+    };
   }
 
   listActivityForPr(prId: number, opts: { afterId?: number; limit?: number; includeSteps?: boolean } = {}): Activity[] {
@@ -536,10 +717,23 @@ export class HeronDb {
     return rows.map(toActivity);
   }
 
+  listActivityForIteration(iterationId: number, opts: { kind?: ActivityKind; afterId?: number } = {}): Activity[] {
+    const kind = opts.kind ? "AND kind = ?" : "";
+    const params: unknown[] = [iterationId, opts.afterId ?? 0];
+    if (opts.kind) params.push(opts.kind);
+    const rows = this.sql
+      .prepare(`SELECT * FROM activity WHERE iteration_id = ? AND id > ? ${kind} ORDER BY id ASC`)
+      .all(...params) as Row[];
+    return rows.map(toActivity);
+  }
+
   // ── profiles ────────────────────────────────────────────────────────────
 
-  listProfiles(): Profile[] {
-    return (this.sql.prepare("SELECT * FROM profiles ORDER BY is_default DESC, name").all() as Row[]).map(toProfile);
+  listProfiles(kind?: ProfileKind): Profile[] {
+    const rows = kind
+      ? this.sql.prepare("SELECT * FROM profiles WHERE kind = ? ORDER BY is_default DESC, name").all(kind)
+      : this.sql.prepare("SELECT * FROM profiles ORDER BY kind DESC, is_default DESC, name").all();
+    return (rows as Row[]).map(toProfile);
   }
 
   getProfile(id: number): Profile | null {
@@ -547,44 +741,51 @@ export class HeronDb {
     return r ? toProfile(r) : null;
   }
 
-  getDefaultProfile(): Profile | null {
-    const r = this.sql.prepare("SELECT * FROM profiles WHERE is_default = 1").get() as Row | undefined;
+  getDefaultProfile(kind: ProfileKind = "review"): Profile | null {
+    const r = this.sql.prepare("SELECT * FROM profiles WHERE is_default = 1 AND kind = ?").get(kind) as Row | undefined;
     return r ? toProfile(r) : null;
   }
 
+  /** A profile's kind never changes once created. */
   saveProfile(p: Omit<Profile, "id"> & { id?: number }): Profile {
     return this.tx(() => {
+      // Iteration profiles have no entry; the NOT NULL entry_type column gets a placeholder.
       const cols = {
         name: p.name,
-        entry_type: p.entry.type,
-        prompt_md: p.entry.type === "prompt" ? p.entry.markdown : null,
-        skill_id: p.entry.type === "skill" ? p.entry.skillId : null,
+        entry_type: p.entry?.type ?? "prompt",
+        prompt_md: p.entry?.type === "prompt" ? p.entry.markdown : null,
+        skill_id: p.entry?.type === "skill" ? p.entry.skillId : null,
         model: p.model,
         effort: p.effort,
         timeout_min: p.timeoutMin,
         max_turns: p.maxTurns,
       };
       let id = p.id;
+      let kind = p.kind;
       if (id === undefined) {
         const info = this.sql
           .prepare(
-            `INSERT INTO profiles (name, entry_type, prompt_md, skill_id, model, effort, timeout_min, max_turns, created_at)
-             VALUES (@name, @entry_type, @prompt_md, @skill_id, @model, @effort, @timeout_min, @max_turns, @created_at)`,
+            `INSERT INTO profiles (name, kind, entry_type, prompt_md, skill_id, model, effort, timeout_min, max_turns, created_at)
+             VALUES (@name, @kind, @entry_type, @prompt_md, @skill_id, @model, @effort, @timeout_min, @max_turns, @created_at)`,
           )
-          .run({ ...cols, created_at: Date.now() });
+          .run({ ...cols, kind, created_at: Date.now() });
         id = Number(info.lastInsertRowid);
       } else {
+        kind = this.getProfile(id)?.kind ?? kind;
         this.updateRow("profiles", id, cols);
       }
-      const hasDefault = this.sql.prepare("SELECT 1 FROM profiles WHERE is_default = 1").get();
+      const hasDefault = this.sql.prepare("SELECT 1 FROM profiles WHERE is_default = 1 AND kind = ?").get(kind);
       if (p.isDefault || !hasDefault) this.setDefaultProfile(id);
       return this.getProfile(id)!;
     });
   }
 
+  /** Make a profile the default of its kind. */
   setDefaultProfile(id: number): void {
     this.tx(() => {
-      this.sql.prepare("UPDATE profiles SET is_default = 0 WHERE is_default = 1").run();
+      const p = this.getProfile(id);
+      if (!p) return;
+      this.sql.prepare("UPDATE profiles SET is_default = 0 WHERE is_default = 1 AND kind = ?").run(p.kind);
       this.sql.prepare("UPDATE profiles SET is_default = 1 WHERE id = ?").run(id);
     });
   }
@@ -596,6 +797,191 @@ export class HeronDb {
       if (p.isDefault) throw new Error("The default profile can't be deleted. Make another profile the default first.");
       this.sql.prepare("DELETE FROM profiles WHERE id = ?").run(id);
     });
+  }
+
+  // ── iterations ──────────────────────────────────────────────────────────
+
+  getIteration(id: number): Iteration | null {
+    const r = this.sql.prepare("SELECT * FROM iterations WHERE id = ?").get(id) as Row | undefined;
+    return r ? toIteration(r) : null;
+  }
+
+  listIterationsForPr(prId: number): Iteration[] {
+    return (this.sql.prepare("SELECT * FROM iterations WHERE pr_id = ? ORDER BY id DESC").all(prId) as Row[]).map(toIteration);
+  }
+
+  listIterationsInStates(states: readonly IterationState[]): Iteration[] {
+    const q = `SELECT * FROM iterations WHERE state IN (${states.map(() => "?").join(",")}) ORDER BY COALESCE(run_after, created_at), id`;
+    return (this.sql.prepare(q).all(...states) as Row[]).map(toIteration);
+  }
+
+  countIterationsByState(): Record<string, number> {
+    const rows = this.sql.prepare("SELECT state, COUNT(*) AS n FROM iterations GROUP BY state").all() as Row[];
+    return Object.fromEntries(rows.map((r) => [String(r.state), Number(r.n)]));
+  }
+
+  /** Per PR: the states of its live iterations and of its latest one that wasn't merged or skipped (the sidebar badge). */
+  iterationStatesByPr(live: readonly IterationState[]): Map<number, { live: IterationState[]; latest: IterationState | null }> {
+    const out = new Map<number, { live: IterationState[]; latest: IterationState | null }>();
+    const entry = (prId: number) => {
+      let e = out.get(prId);
+      if (!e) out.set(prId, (e = { live: [], latest: null }));
+      return e;
+    };
+    const liveRows = this.sql
+      .prepare(`SELECT pr_id, state FROM iterations WHERE state IN (${live.map(() => "?").join(",")})`)
+      .all(...live) as Row[];
+    for (const r of liveRows) entry(Number(r.pr_id)).live.push(r.state as IterationState);
+    const latest = this.sql
+      .prepare(
+        `SELECT i.pr_id, i.state FROM iterations i
+         WHERE i.id = (SELECT MAX(id) FROM iterations x WHERE x.pr_id = i.pr_id AND x.merged_into IS NULL AND x.state != 'skipped')`,
+      )
+      .all() as Row[];
+    for (const r of latest) entry(Number(r.pr_id)).latest = r.state as IterationState;
+    return out;
+  }
+
+  createIteration(input: { prId: number; state: IterationState; trigger: IterationTrigger; runAfter: number | null; transcriptPath: (id: number) => string }): Iteration {
+    return this.tx(() => {
+      const now = Date.now();
+      const info = this.sql
+        .prepare(
+          `INSERT INTO iterations (pr_id, state, trigger_kind, run_after, created_at, updated_at, last_activity_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(input.prId, input.state, input.trigger, input.runAfter, now, now, now);
+      const id = Number(info.lastInsertRowid);
+      this.sql.prepare("UPDATE iterations SET transcript_path = ? WHERE id = ?").run(input.transcriptPath(id), id);
+      return this.getIteration(id)!;
+    });
+  }
+
+  /** Like `updateReview`: with `expectState`, applies only while the row is still in one of those states. */
+  updateIteration(id: number, patch: IterationPatch, expectState?: readonly IterationState[]): Iteration | null {
+    const now = Date.now();
+    const sets: string[] = ["updated_at = ?", "last_activity_at = ?"];
+    const values: unknown[] = [now, now];
+    for (const [key, value] of Object.entries(patch) as [keyof IterationPatch, never][]) {
+      if (value === undefined) continue;
+      const [col, enc] = ITERATION_COLUMNS[key];
+      sets.push(`${col} = ?`);
+      values.push(enc(value));
+    }
+    let where = "id = ?";
+    values.push(id);
+    if (expectState && expectState.length > 0) {
+      where += ` AND state IN (${expectState.map(() => "?").join(",")})`;
+      values.push(...expectState);
+    }
+    const info = this.sql.prepare(`UPDATE iterations SET ${sets.join(", ")} WHERE ${where}`).run(...values);
+    if (info.changes === 0) return null;
+    return this.getIteration(id);
+  }
+
+  addIterationUsage(id: number, usage: TokenUsage): void {
+    this.tx(() => {
+      const prev = this.getIteration(id)?.usage;
+      this.updateIteration(id, {
+        usage: prev
+          ? {
+              input: prev.input + usage.input,
+              output: prev.output + usage.output,
+              cacheRead: prev.cacheRead + usage.cacheRead,
+              cacheWrite: prev.cacheWrite + usage.cacheWrite,
+            }
+          : usage,
+      });
+    });
+  }
+
+  /** Commits Heron made on this PR (to tell its own pushes from everyone else's). */
+  iterationCommitShas(prId: number): Set<string> {
+    const rows = this.sql.prepare("SELECT commit_sha FROM iterations WHERE pr_id = ? AND commit_sha IS NOT NULL").all(prId) as Row[];
+    return new Set(rows.map((r) => String(r.commit_sha)));
+  }
+
+  // ── feedback ────────────────────────────────────────────────────────────
+
+  /** Record comments seen on GitHub. New ones are inserted; known ones only get their text refreshed. Returns the new rows. */
+  upsertFeedback(prId: number, observed: ObservedFeedback[]): Feedback[] {
+    return this.tx(() => {
+      const now = Date.now();
+      const find = this.sql.prepare("SELECT id FROM feedback WHERE pr_id = ? AND kind = ? AND github_id = ?");
+      const refresh = this.sql.prepare("UPDATE feedback SET body = ?, line = ?, outdated = ? WHERE id = ?");
+      const insert = this.sql.prepare(
+        `INSERT INTO feedback (pr_id, github_id, kind, thread_root_id, author, body, url, path, line, outdated, diff_hunk,
+                               review_state, created_at, status, observed_at)
+         VALUES (@prId, @githubId, @kind, @threadRootId, @author, @body, @url, @path, @line, @outdated, @diffHunk,
+                 @reviewState, @createdAt, @status, @now)`,
+      );
+      const added: Feedback[] = [];
+      for (const o of observed) {
+        const existing = find.get(prId, o.kind, o.githubId) as Row | undefined;
+        if (existing) {
+          refresh.run(o.body, o.line, o.outdated ? 1 : 0, Number(existing.id));
+          continue;
+        }
+        const info = insert.run({
+          prId,
+          githubId: o.githubId,
+          kind: o.kind,
+          threadRootId: o.threadRootId,
+          author: o.author,
+          body: o.body,
+          url: o.url,
+          path: o.path,
+          line: o.line,
+          outdated: o.outdated ? 1 : 0,
+          diffHunk: o.diffHunk,
+          reviewState: o.reviewState,
+          createdAt: o.createdAt,
+          status: o.heronReply ? "ignored" : "unhandled",
+          now,
+        });
+        added.push(this.getFeedback(Number(info.lastInsertRowid))!);
+      }
+      return added;
+    });
+  }
+
+  getFeedback(id: number): Feedback | null {
+    const r = this.sql.prepare("SELECT * FROM feedback WHERE id = ?").get(id) as Row | undefined;
+    return r ? toFeedback(r) : null;
+  }
+
+  listFeedbackForPr(prId: number, status?: FeedbackStatus): Feedback[] {
+    const rows = status
+      ? this.sql.prepare("SELECT * FROM feedback WHERE pr_id = ? AND status = ? ORDER BY created_at, id").all(prId, status)
+      : this.sql.prepare("SELECT * FROM feedback WHERE pr_id = ? ORDER BY created_at, id").all(prId);
+    return (rows as Row[]).map(toFeedback);
+  }
+
+  listFeedbackForIteration(iterationId: number): Feedback[] {
+    return (this.sql.prepare("SELECT * FROM feedback WHERE iteration_id = ? ORDER BY created_at, id").all(iterationId) as Row[]).map(toFeedback);
+  }
+
+  updateFeedback(ids: readonly number[], patch: FeedbackPatch): void {
+    if (ids.length === 0) return;
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, value] of Object.entries(patch) as [keyof FeedbackPatch, unknown][]) {
+      if (value === undefined) continue;
+      sets.push(`${FEEDBACK_COLUMNS[key]} = ?`);
+      values.push(value);
+    }
+    if (sets.length === 0) return;
+    const stmt = this.sql.prepare(`UPDATE feedback SET ${sets.join(", ")} WHERE id = ?`);
+    this.tx(() => {
+      for (const id of ids) stmt.run(...values, id);
+    });
+  }
+
+  /** An iteration ended pushed, no_changes, discarded or uncommitted: the comments it took on are handled. */
+  handleIterationFeedback(iterationId: number, at: number): void {
+    this.sql
+      .prepare("UPDATE feedback SET status = 'handled', handled_at = ? WHERE iteration_id = ? AND status = 'unhandled'")
+      .run(at, iterationId);
   }
 
   // ── skills ──────────────────────────────────────────────────────────────

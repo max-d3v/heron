@@ -1,19 +1,21 @@
-import type { PrDetail as PrDetailDto, RunSummary } from "@heron/rpc";
+import type { IterationSummary, PrDetail as PrDetailDto, RunSummary } from "@heron/rpc";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, ExternalLink, Play, RotateCw, Square } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { shortSha } from "../lib/format";
+import { defaultIteration } from "../lib/iterations";
 import { errorText, orpc } from "../lib/rpc";
 import { Avatar } from "./Avatar";
 import { PrIcon, prStatusLabel } from "./StatusDot";
 import { ActivityTab } from "./tabs/ActivityTab";
+import { IterationTab } from "./tabs/IterationTab";
 import { PrTab } from "./tabs/PrTab";
 import { ReviewTab } from "./tabs/ReviewTab";
 import { RunsTab } from "./tabs/RunsTab";
 import { TranscriptTab } from "./tabs/TranscriptTab";
 import { Button, Empty, ErrorNote, Segmented, Spinner, Tooltip } from "./ui";
 
-type Tab = "review" | "activity" | "runs" | "transcript" | "pr";
+export type Tab = "review" | "iteration" | "activity" | "runs" | "transcript" | "pr";
 
 const ACTIVE = new Set(["debouncing", "queued", "preparing", "running", "validating", "posting"]);
 const IN_FLIGHT = new Set(["preparing", "running", "validating", "posting"]);
@@ -30,14 +32,35 @@ function defaultRun(runs: RunSummary[]): RunSummary | null {
   return runs.find((r) => r.state === "posted" || r.state === "completed" || r.state === "failed" || isInFlightRun(r)) ?? runs[0] ?? null;
 }
 
-export function PrDetail({ prId }: { prId: number }) {
+/** Which run the Transcript tab shows: the one of the Review or Iteration tab last looked at. */
+type TranscriptFor = "review" | "iteration";
+
+export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: { tab: Tab; at: number } | null }) {
   const query = useQuery(orpc.prs.get.queryOptions({ input: { id: prId } }));
-  const [tab, setTab] = useState<Tab>("review");
+  const [tab, setTabState] = useState<Tab>(requestedTab?.tab ?? "review");
+  const [transcriptFor, setTranscriptFor] = useState<TranscriptFor>(requestedTab?.tab === "iteration" ? "iteration" : "review");
   const [pickedRunId, setPickedRunId] = useState<number | null>(null);
+  const [pickedIterationId, setPickedIterationId] = useState<number | null>(null);
+
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    if (t === "review" || t === "iteration") setTranscriptFor(t);
+  };
 
   useEffect(() => {
     setPickedRunId(null);
+    setPickedIterationId(null);
   }, [prId]);
+
+  // A notification or the menu bar asked for a tab (e.g. Ready to push → Iteration).
+  useEffect(() => {
+    if (!requestedTab) return;
+    setTabState(requestedTab.tab);
+    if (requestedTab.tab === "iteration") {
+      setTranscriptFor("iteration");
+      setPickedIterationId(null);
+    }
+  }, [requestedTab]);
 
   if (query.isPending) {
     return (
@@ -51,6 +74,11 @@ export function PrDetail({ prId }: { prId: number }) {
   }
   const pr = query.data;
   const shown = (pickedRunId !== null ? pr.runs.find((r) => r.id === pickedRunId) : null) ?? defaultRun(pr.runs);
+  const shownIteration: IterationSummary | null =
+    (pickedIterationId !== null ? pr.iterations.find((i) => i.id === pickedIterationId) : null) ??
+    defaultIteration(pr.iterations, pr.state === "open");
+  const runCount = pr.runs.length + pr.iterations.filter((i) => i.startedAt !== null || i.state === "skipped").length;
+  const picked = tab === "iteration" ? pickedIterationId !== null && shownIteration : tab === "review" && pickedRunId !== null && shown;
 
   return (
     <div className="flex h-full flex-col">
@@ -61,32 +89,51 @@ export function PrDetail({ prId }: { prId: number }) {
           onChange={setTab}
           options={[
             { value: "review", label: "Review" },
+            { value: "iteration", label: "Iteration" },
             { value: "activity", label: "Activity" },
-            { value: "runs", label: pr.runs.length ? `Runs (${pr.runs.length})` : "Runs" },
+            { value: "runs", label: runCount ? `Runs (${runCount})` : "Runs" },
             { value: "transcript", label: "Transcript" },
             { value: "pr", label: "Pull Request" },
           ]}
         />
-        {shown && pickedRunId !== null && (
-          <button className="text-[11.5px] text-accent hover:underline" onClick={() => setPickedRunId(null)}>
-            Showing run of {shortSha(shown.headSha)} · show latest
+        {picked && (
+          <button
+            className="text-[11.5px] text-accent hover:underline"
+            onClick={() => (tab === "iteration" ? setPickedIterationId(null) : setPickedRunId(null))}
+          >
+            {tab === "iteration" ? `Showing iteration ${shownIteration!.id}` : `Showing run of ${shortSha(shown!.headSha)}`} · show latest
           </button>
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "review" && <ReviewTab pr={pr} run={shown} />}
+        {tab === "iteration" && <IterationTab pr={pr} iteration={shownIteration} />}
         {tab === "activity" && <ActivityTab prId={pr.id} />}
         {tab === "runs" && (
           <RunsTab
             runs={pr.runs}
-            selectedId={shown?.id ?? null}
-            onOpen={(id) => {
+            iterations={pr.iterations}
+            selectedRunId={shown?.id ?? null}
+            selectedIterationId={shownIteration?.id ?? null}
+            onOpenRun={(id) => {
               setPickedRunId(id);
               setTab("review");
             }}
+            onOpenIteration={(id) => {
+              setPickedIterationId(id);
+              setTab("iteration");
+            }}
           />
         )}
-        {tab === "transcript" && <TranscriptTab run={shown} />}
+        {tab === "transcript" && (
+          <TranscriptTab
+            target={
+              transcriptFor === "iteration"
+                ? shownIteration && { kind: "iteration", iteration: shownIteration }
+                : shown && { kind: "review", run: shown }
+            }
+          />
+        )}
         {tab === "pr" && <PrTab pr={pr} />}
       </div>
     </div>
@@ -103,7 +150,8 @@ function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
   const headActive = active?.headSha === pr.headSha;
   const headRunning = headActive && active !== null && isInFlightRun(active);
   const open = pr.state === "open";
-  const notOpenReason = open ? null : `This PR is ${pr.state}, so it can't be reviewed`;
+  // Review now and Re-run need reviews on: with them off, nothing would pick the run up.
+  const notOpenReason = !open ? `This PR is ${pr.state}, so it can't be reviewed` : pr.reviewsOn ? null : "Reviews are off for this repo";
   const error = reviewNow.error ?? rerun.error ?? cancel.error;
 
   return (
@@ -160,7 +208,7 @@ function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
               <ButtonTip content={notOpenReason ?? `Review ${shortSha(shown.headSha)} again`}>
                 <Button
                   icon={<RotateCw className="size-3.5" />}
-                  disabled={!open}
+                  disabled={notOpenReason !== null}
                   busy={rerun.isPending}
                   onClick={() => rerun.mutate({ reviewId: shown.id })}
                 >
@@ -173,7 +221,7 @@ function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
             <Button
               variant="primary"
               icon={<Play className="size-3.5" />}
-              disabled={!open || headRunning}
+              disabled={notOpenReason !== null || headRunning}
               busy={reviewNow.isPending}
               onClick={() => reviewNow.mutate({ prId: pr.id })}
             >
@@ -195,7 +243,7 @@ function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
  * Disabled buttons get no pointer events, so the tooltip hangs off a wrapper and the
  * button lets the pointer through to it. The wrapper also opts out of window dragging.
  */
-function ButtonTip({ content, children }: { content: string | null; children: ReactElement }) {
+export function ButtonTip({ content, children }: { content: string | null; children: ReactElement }) {
   if (!content) return children;
   return (
     <Tooltip content={content}>

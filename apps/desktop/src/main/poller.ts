@@ -1,6 +1,7 @@
 import { AuthError, LimitError, diffPrs, errorMessage, type Repo } from "@heron/core";
 import type { HeronDb } from "@heron/db";
 import type { GitHubClient } from "@heron/github";
+import type { IterationScheduler } from "./iterations.ts";
 import type { Scheduler } from "./scheduler.ts";
 import type { Store } from "./store.ts";
 
@@ -9,12 +10,13 @@ export interface PollerDeps {
   store: Store;
   github: GitHubClient;
   scheduler: Scheduler;
+  iterations: IterationScheduler;
   intervalSec: () => number;
   /** Doctor is green (gh logged in etc.). */
   ready: () => boolean;
 }
 
-/** Polls each enabled repo's open PRs with ETags and feeds changes to the scheduler (§8). */
+/** Polls the open PRs of each repo with reviews or iterations on, with ETags, and feeds changes to the schedulers (§8). */
 export class Poller {
   private timer: NodeJS.Timeout | null = null;
   private inFlight: Promise<void> | null = null;
@@ -54,7 +56,7 @@ export class Poller {
       if (this.stopped || !this.d.ready() || Date.now() < this.pausedUntil) return;
       for (const repo of this.d.db.listRepos()) {
         if (this.stopped) break;
-        if (!repo.enabled) continue;
+        if (!repo.reviewEnabled && !repo.iterationEnabled) continue;
         const stop = await this.pollRepo(repo);
         if (stop) break;
       }
@@ -102,8 +104,12 @@ export class Poller {
 
       const initial = !repo.initialSyncDone;
       const fresh = db.updateRepo(repo.id, { etag: res.etag, lastPolledAt: now, lastPollError: null, initialSyncDone: true });
-      // No backfill: PRs that were open when the repo was added are only listed.
-      if (!initial) scheduler.handleChanges(fresh, changes);
+      // No backfill: PRs that were open when the repo was added are only listed. (Iterations
+      // pick up every eligible PR's comments by itself, from the `updatedAt` stored above.)
+      if (!initial) {
+        scheduler.handleChanges(fresh, changes);
+        this.d.iterations.handleChanges(fresh, changes);
+      }
       store.prsChanged();
       return false;
     } catch (err) {

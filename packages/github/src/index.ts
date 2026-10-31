@@ -7,11 +7,13 @@ import {
   PermanentError,
   TransientError,
   foldCommentsIntoBody,
+  parseIterationMarker,
   parseReviewMarker,
   reviewMarker,
   stripIssueCopyPrompts,
   stripReviewMarker,
   withIssueCopyPrompts,
+  type ObservedFeedback,
   type ObservedPr,
   type PrState,
   type ReviewPayload,
@@ -110,6 +112,12 @@ export function classifyGitHubError(err: unknown, context: string): Error {
     if (status >= 500) return new TransientError(msg, { cause: err });
     return new PermanentError(msg, { cause: err });
   }
+  // GraphQL answers 200 and lists what went wrong in `errors`.
+  if (err instanceof Error && err.name === "GraphqlResponseError") {
+    const errors = (err as { errors?: Array<{ type?: string }> }).errors ?? [];
+    if (errors.some((e) => e.type === "RATE_LIMITED")) return new LimitError("github", Date.now() + 60_000, "GitHub GraphQL rate limit reached", { cause: err });
+    return new PermanentError(`${context}: ${err.message}`, { cause: err });
+  }
   return new TransientError(`${context}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
 }
 
@@ -122,7 +130,7 @@ interface ApiPull {
   body?: string | null;
   user?: { login: string; avatar_url?: string } | null;
   draft?: boolean;
-  head: { sha: string; ref: string };
+  head: { sha: string; ref: string; repo?: { full_name: string } | null };
   base: { sha: string; ref: string };
   html_url: string;
   created_at: string;
@@ -145,12 +153,42 @@ function toObserved(p: ApiPull): ObservedPr {
     isDraft: Boolean(p.draft),
     headSha: p.head.sha,
     headRef: p.head.ref,
+    headRepo: p.head.repo?.full_name ?? null,
     baseRef: p.base.ref,
     baseSha: p.base.sha,
     url: p.html_url,
     createdAt: ts(p.created_at),
     updatedAt: ts(p.updated_at),
   };
+}
+
+// `databaseId` is an Int and overflows on newer comments; `fullDatabaseId` is the same id as a string.
+const REVIEW_THREADS_QUERY = `
+  query ($owner: String!, $repo: String!, $number: Int!, $after: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        reviewThreads(first: 100, after: $after) {
+          pageInfo { hasNextPage endCursor }
+          nodes { id isResolved comments(first: 1) { nodes { fullDatabaseId } } }
+        }
+      }
+    }
+  }`;
+
+const RESOLVE_THREAD_MUTATION = `
+  mutation ($threadId: ID!) {
+    resolveReviewThread(input: { threadId: $threadId }) { thread { id } }
+  }`;
+
+interface ReviewThreadsPage {
+  repository: {
+    pullRequest: {
+      reviewThreads: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        nodes: Array<{ id: string; isResolved: boolean; comments: { nodes: Array<{ fullDatabaseId: string | null }> } }>;
+      };
+    } | null;
+  } | null;
 }
 
 /** GitHub caps a review body at 65 536 characters. */
@@ -390,6 +428,129 @@ export class GitHubClient {
         })),
       },
     };
+  }
+
+  /**
+   * Every comment on the PR as iteration feedback (§15.3): review bodies, inline comments
+   * and their replies, and conversation comments. Pending (unsubmitted) reviews and empty
+   * bodies are left out; Heron's iteration replies come back flagged.
+   */
+  async getFeedback(owner: string, repo: string, number: number): Promise<ObservedFeedback[]> {
+    const ctx = `Comments of ${owner}/${repo}#${number}`;
+    const [reviews, reviewComments, issueComments] = await Promise.all([
+      this.call(ctx, (o) => o.paginate(o.rest.pulls.listReviews, { owner, repo, pull_number: number, per_page: 100 })),
+      this.call(ctx, (o) => o.paginate(o.rest.pulls.listReviewComments, { owner, repo, pull_number: number, per_page: 100 })),
+      this.call(ctx, (o) => o.paginate(o.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 })),
+    ]);
+    const pending = new Set(reviews.filter((r) => r.state === "PENDING").map((r) => r.id));
+    const out: ObservedFeedback[] = [];
+
+    for (const r of reviews) {
+      if (r.state === "PENDING") continue;
+      // Heron's reviews count like anyone else's; their marker and copy prompts are noise here.
+      const body = stripIssueCopyPrompts(stripReviewMarker(r.body ?? "")).trim();
+      if (!body) continue;
+      out.push({
+        kind: "review",
+        githubId: r.id,
+        threadRootId: r.id,
+        author: r.user?.login ?? "ghost",
+        body,
+        url: r.html_url,
+        path: null,
+        line: null,
+        outdated: false,
+        diffHunk: null,
+        reviewState: r.state,
+        createdAt: ts(r.submitted_at),
+        heronReply: false,
+      });
+    }
+
+    for (const c of reviewComments) {
+      if (c.pull_request_review_id && pending.has(c.pull_request_review_id)) continue;
+      out.push({
+        kind: "inline",
+        githubId: c.id,
+        threadRootId: c.in_reply_to_id ?? c.id,
+        author: c.user?.login ?? "ghost",
+        body: stripIssueCopyPrompts(c.body),
+        url: c.html_url,
+        path: c.path,
+        line: c.line ?? c.original_line ?? null,
+        // GitHub drops `line` once the commented code changes.
+        outdated: c.line === null || c.line === undefined,
+        diffHunk: c.diff_hunk ?? null,
+        reviewState: null,
+        createdAt: ts(c.created_at),
+        heronReply: parseIterationMarker(c.body) !== null,
+      });
+    }
+
+    for (const c of issueComments) {
+      const body = c.body ?? "";
+      if (!body.trim()) continue;
+      out.push({
+        kind: "conversation",
+        githubId: c.id,
+        threadRootId: c.id,
+        author: c.user?.login ?? "ghost",
+        body,
+        url: c.html_url,
+        path: null,
+        line: null,
+        outdated: false,
+        diffHunk: null,
+        reviewState: null,
+        createdAt: ts(c.created_at),
+        heronReply: parseIterationMarker(body) !== null,
+      });
+    }
+    return out;
+  }
+
+  /** Threads this iteration already replied on (root comment id → reply URL), so a retry never posts twice. */
+  async listIterationReplies(owner: string, repo: string, number: number, iterationId: number): Promise<Map<number, string>> {
+    const comments = await this.call(`Comments of ${owner}/${repo}#${number}`, (o) =>
+      o.paginate(o.rest.pulls.listReviewComments, { owner, repo, pull_number: number, per_page: 100 }),
+    );
+    const out = new Map<number, string>();
+    for (const c of comments) {
+      if (c.in_reply_to_id && parseIterationMarker(c.body)?.iterationId === iterationId) out.set(c.in_reply_to_id, c.html_url);
+    }
+    return out;
+  }
+
+  /** Reply in an inline comment's thread. */
+  async replyToReviewComment(owner: string, repo: string, number: number, commentId: number, body: string): Promise<{ id: number; url: string }> {
+    const { data } = await this.call(`Reply on ${owner}/${repo}#${number}`, (o) =>
+      o.rest.pulls.createReplyForReviewComment({ owner, repo, pull_number: number, comment_id: commentId, body }),
+    );
+    return { id: data.id, url: data.html_url };
+  }
+
+  /** The PR's inline threads (GraphQL only), keyed by their first comment's id. */
+  async listReviewThreads(owner: string, repo: string, number: number): Promise<Map<number, { id: string; resolved: boolean }>> {
+    const out = new Map<number, { id: string; resolved: boolean }>();
+    let after: string | null = null;
+    do {
+      const data: ReviewThreadsPage = await this.call(`Threads of ${owner}/${repo}#${number}`, (o) =>
+        o.graphql<ReviewThreadsPage>(REVIEW_THREADS_QUERY, { owner, repo, number, after }),
+      );
+      const page = data.repository?.pullRequest?.reviewThreads;
+      if (!page) break;
+      for (const t of page.nodes) {
+        const root = t.comments.nodes[0]?.fullDatabaseId;
+        if (root) out.set(Number(root), { id: t.id, resolved: t.isResolved });
+      }
+      after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+    } while (after);
+    return out;
+  }
+
+  /** Mark an inline thread resolved, as the "Resolve conversation" button does. */
+  async resolveReviewThread(threadId: string): Promise<void> {
+    await this.call("Resolve thread", (o) => o.graphql(RESOLVE_THREAD_MUTATION, { threadId }));
   }
 
   /** Find a review we already posted for this run (idempotent posting after a crash). */

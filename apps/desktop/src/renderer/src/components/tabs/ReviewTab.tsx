@@ -42,11 +42,15 @@ export function ReviewTab({ pr, run }: { pr: PrDetail; run: RunSummary | null })
       {!run ? (
         <div className="pt-16">
           <Empty icon={<Sparkles className="size-7" />} title="Not reviewed yet">
-            {pr.state === "open"
-              ? pr.inScope
-                ? "The next push to this PR is reviewed automatically. Use Review now to review the current head."
-                : "This PR is outside the repo's scope. Use Review now to review it anyway."
-              : "This PR is closed."}
+            {pr.state !== "open"
+              ? "This PR is closed."
+              : !pr.reviewsOn
+                ? "Reviews are off for this repo. Turn them on in Settings → Repos."
+                : pr.autoReview
+                  ? "The next push to this PR is reviewed automatically. Use Review now to review the current head."
+                  : pr.inScope
+                    ? "Pushes don't start a review here. Use Review now to review the current head."
+                    : "This PR is outside the repo's scope. Use Review now to review it anyway."}
           </Empty>
         </div>
       ) : isInFlightRun(run) ? (
@@ -82,7 +86,7 @@ function PendingCard({ run }: { run: RunSummary }) {
   );
 }
 
-function stepIcon(kind: AgentStepEvent["step"]["kind"]) {
+export function stepIcon(kind: AgentStepEvent["step"]["kind"]) {
   const cls = "size-3.5 shrink-0";
   switch (kind) {
     case "read":
@@ -112,7 +116,7 @@ function stepIcon(kind: AgentStepEvent["step"]["kind"]) {
   }
 }
 
-function StepList({ steps, live }: { steps: AgentStepEvent[]; live?: boolean }) {
+export function StepList({ steps, live }: { steps: AgentStepEvent[]; live?: boolean }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (live) end.current?.scrollIntoView({ block: "nearest" });
@@ -224,7 +228,17 @@ function FinishedRun({ run }: { run: RunSummary }) {
 function RunMeta({ run }: { run: ReviewDetail }) {
   const now = useNow(30_000);
   const label =
-    run.state === "posted" ? "Posted" : run.state === "completed" ? "Completed" : run.state === "failed" ? "Failed" : run.state === "cancelled" ? "Cancelled" : "Superseded";
+    run.state === "posted"
+      ? "Posted"
+      : run.state === "completed"
+        ? run.dryRun
+          ? "Completed"
+          : "No issues"
+        : run.state === "failed"
+          ? "Failed"
+          : run.state === "cancelled"
+            ? "Cancelled"
+            : "Superseded";
   const tone = run.state === "posted" ? "green" : run.state === "completed" ? "teal" : run.state === "failed" ? "red" : "gray";
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-fg-2">
@@ -282,7 +296,11 @@ function ReviewBody({ review }: { review: ReviewDetail }) {
   return (
     <div className="flex flex-col gap-5">
       <article className="rounded-[10px] bg-content px-5 py-4 shadow-[0_0_0_0.5px_var(--line-strong)]">
-        {payload.body.trim() ? <Markdown>{payload.body}</Markdown> : <div className="text-[12.5px] italic text-fg-3">No summary.</div>}
+        {payload.body.trim() ? (
+          <Markdown>{payload.body}</Markdown>
+        ) : (
+          <div className="text-[12.5px] italic text-fg-3">{byFile.length > 0 ? "No summary." : "No issues found, so nothing was posted."}</div>
+        )}
       </article>
 
       {byFile.length > 0 && (

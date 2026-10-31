@@ -139,7 +139,7 @@ export class SkillService {
   async remove(id: number): Promise<void> {
     const skill = this.db.getSkill(id);
     if (!skill) return;
-    const users = this.db.listProfiles().filter((p) => p.entry.type === "skill" && p.entry.skillId === id);
+    const users = this.db.listProfiles("review").filter((p) => p.entry?.type === "skill" && p.entry.skillId === id);
     if (users.length > 0) {
       throw new Error(`Used by ${users.map((p) => `"${p.name}"`).join(", ")}. Change those profiles first.`);
     }

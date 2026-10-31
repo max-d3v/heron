@@ -5,6 +5,7 @@ import {
   AuthError,
   OutputParseError,
   PermanentError,
+  isEmptyPayload,
   isInFlight,
   nextStep,
   parseDiff,
@@ -103,10 +104,11 @@ export class Pipeline {
           patch = await this.post(review, pr, repo);
           break;
       }
-      const to = nextStep(review.state, review.profileSnapshot!.dryRun);
+      const to = nextStep(review.state, posts(review));
       const done = to === "posted" || to === "completed";
       review = this.d.store.transition(review, to, {
         patch: { ...patch, ...(done ? { finishedAt: Date.now() } : {}) },
+        message: to === "completed" && !review.profileSnapshot!.dryRun ? "No issues found, nothing posted" : undefined,
         data: to === "posted" ? { url: patch.githubReviewUrl ?? null } : undefined,
       });
     }
@@ -122,8 +124,9 @@ export class Pipeline {
 
   private async snapshot(review: Review): Promise<ProfileSnapshot> {
     const { repo } = this.context(review);
-    const profile = (repo.profileId !== null ? this.d.db.getProfile(repo.profileId) : null) ?? this.d.db.getDefaultProfile();
-    if (!profile) throw new PermanentError("No review profile is set up");
+    const picked = repo.profileId !== null ? this.d.db.getProfile(repo.profileId) : null;
+    const profile = picked?.kind === "review" ? picked : this.d.db.getDefaultProfile("review");
+    if (!profile?.entry) throw new PermanentError("No review profile is set up");
     let entry: ProfileSnapshot["entry"];
     if (profile.entry.type === "skill") {
       const skill = this.d.db.getSkill(profile.entry.skillId);
@@ -322,7 +325,7 @@ export class Pipeline {
   // ── posting ───────────────────────────────────────────────────────────────
 
   private async post(review: Review, pr: Pr, repo: Repo): Promise<ReviewPatch> {
-    if (review.profileSnapshot!.dryRun) return {};
+    if (!posts(review)) return {};
     if (!review.payload) throw new PermanentError("Nothing to post (validation output missing)");
     const { github } = this.d;
     // Idempotent: a crash after POST but before saving must not post twice.
@@ -339,4 +342,10 @@ export class Pipeline {
     }
     return { githubReviewId: posted.id, githubReviewUrl: posted.url };
   }
+}
+
+/** Dry runs, and reviews that found nothing to raise, finish as `completed` without posting. */
+function posts(review: Review): boolean {
+  if (review.profileSnapshot!.dryRun) return false;
+  return !review.payload || !isEmptyPayload(review.payload);
 }
