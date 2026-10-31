@@ -32,3 +32,20 @@ mac:
     NSUserNotificationAlertStyle: alert
 dmg:
   title: Heron
+# Built on Windows only, by .github/workflows/windows.yml. v1 is unsigned (personal use):
+# SmartScreen warns on first run (More info → Run anyway).
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+  # Tray icons and taskbar badges, on top of the extraResources above.
+  extraResources:
+    - from: resources/win
+      to: win
+      filter:
+        - "*.png"
+# One click and per-user, so installing needs no admin.
+nsis:
+  oneClick: true
+  perMachine: false
