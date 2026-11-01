@@ -34,10 +34,14 @@ export function initPlatform(): void {
 
 // ── window ──────────────────────────────────────────────────────────────────
 
+/** The content area's background in the current theme; must match `--content` in styles.css. */
+function contentColor(): string {
+  return nativeTheme.shouldUseDarkColors ? "#1e1e1f" : "#ffffff";
+}
+
 /** Windows' window buttons in the colors of the content they sit on (`--content` and `--fg` in styles.css). */
 function titleBarOverlay(): Electron.TitleBarOverlay {
-  const dark = nativeTheme.shouldUseDarkColors;
-  return { color: dark ? "#1e1e1f" : "#ffffff", symbolColor: dark ? "#e0e0e0" : "#202020", height: TITLE_BAR_HEIGHT };
+  return { color: contentColor(), symbolColor: nativeTheme.shouldUseDarkColors ? "#e0e0e0" : "#202020", height: TITLE_BAR_HEIGHT };
 }
 
 /**
@@ -57,7 +61,7 @@ export function windowChrome(): BrowserWindowConstructorOptions {
   return {
     titleBarStyle: "hidden",
     titleBarOverlay: titleBarOverlay(),
-    ...(mica ? { backgroundMaterial: "mica", backgroundColor: "#00000000" } : { backgroundColor: nativeTheme.shouldUseDarkColors ? "#1e1e1f" : "#ffffff" }),
+    ...(mica ? { backgroundMaterial: "mica", backgroundColor: "#00000000" } : { backgroundColor: contentColor() }),
   };
 }
 
@@ -70,7 +74,7 @@ export function setUpWindow(win: BrowserWindow): void {
   const onTheme = () => {
     if (win.isDestroyed()) return;
     win.setTitleBarOverlay(titleBarOverlay());
-    if (!mica) win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#1e1e1f" : "#ffffff");
+    if (!mica) win.setBackgroundColor(contentColor());
   };
   nativeTheme.on("updated", onTheme);
   win.on("closed", () => nativeTheme.off("updated", onTheme));

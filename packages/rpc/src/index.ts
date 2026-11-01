@@ -409,7 +409,7 @@ export const doctorCheck = z.object({
   detail: z.string(),
   fix: z.string().nullable(),
   /** A failed check holds the queue. A failed non-blocking one is only a warning. */
-  blocking: z.boolean().default(true),
+  blocking: z.boolean(),
 });
 
 export const doctorReport = z.object({
@@ -551,6 +551,4 @@ export type SettingsDto = z.infer<typeof settings>;
 export type QueueStatusDto = z.infer<typeof queueStatus>;
 export type DoctorReport = z.infer<typeof doctorReport>;
 export type DoctorCheck = z.infer<typeof doctorCheck>;
-/** A check as the Doctor builds it: `blocking` may be left out (true). */
-export type DoctorCheckInput = z.input<typeof doctorCheck>;
 export type AppEvent = z.infer<typeof appEvent>;

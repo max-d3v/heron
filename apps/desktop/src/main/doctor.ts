@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import type { DoctorCheckInput, DoctorReport } from "@heron/rpc";
+import type { DoctorCheck, DoctorReport } from "@heron/rpc";
 import type { GitHubClient } from "@heron/github";
 import { verifyClaudeLogin } from "@heron/harness";
 import { longPathsEnabled, setupShell, which, type Binaries } from "@heron/platform";
@@ -36,12 +36,12 @@ export async function runDoctor(
   github: GitHubClient,
   scratch: { ghConfigDir: string; cwd: string },
 ): Promise<DoctorReport> {
-  const checks: DoctorCheckInput[] = [];
+  const checks: DoctorCheck[] = [];
   let viewer: DoctorReport["viewer"] = null;
 
   // git
   if (!bins.git) {
-    checks.push({ id: "git", label: "git", ok: false, detail: "Not found on your PATH.", fix: INSTALL.git });
+    checks.push({ id: "git", label: "git", ok: false, detail: "Not found on your PATH.", fix: INSTALL.git, blocking: true });
   } else {
     const r = await run(bins.git, ["--version"], env);
     checks.push({
@@ -50,21 +50,22 @@ export async function runDoctor(
       ok: r.ok,
       detail: r.ok ? `${r.stdout.trim()} (${bins.git})` : r.stderr.trim(),
       fix: r.ok ? null : INSTALL.git,
+      blocking: true,
     });
   }
 
   // gh
   if (!bins.gh) {
-    checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not found on your PATH.", fix: INSTALL.gh });
+    checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not found on your PATH.", fix: INSTALL.gh, blocking: true });
   } else {
     const status = await run(bins.gh, ["auth", "status", "--hostname", "github.com"], env);
     if (!status.ok) {
-      checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not logged in to github.com.", fix: "gh auth login" });
+      checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not logged in to github.com.", fix: "gh auth login", blocking: true });
     } else {
       try {
         github.resetAuth();
         viewer = await github.viewer();
-        checks.push({ id: "gh", label: "GitHub CLI", ok: true, detail: `Logged in as ${viewer.login}`, fix: null });
+        checks.push({ id: "gh", label: "GitHub CLI", ok: true, detail: `Logged in as ${viewer.login}`, fix: null, blocking: true });
       } catch (err) {
         checks.push({
           id: "gh",
@@ -72,6 +73,7 @@ export async function runDoctor(
           ok: false,
           detail: `The gh token doesn't work with the API: ${err instanceof Error ? err.message : String(err)}`,
           fix: "gh auth refresh -h github.com -s repo",
+          blocking: true,
         });
       }
     }
@@ -87,6 +89,7 @@ export async function runDoctor(
       ok: false,
       detail: wrapper ? `Only ${wrapper} was found, and Heron runs the native claude.exe, never a wrapper.` : "Not found on your PATH.",
       fix: INSTALL.claude,
+      blocking: true,
     });
   } else {
     const version = await run(bins.claude, ["--version"], env);
@@ -119,6 +122,7 @@ export async function runDoctor(
           ? `${version.stdout.trim()}${who ? `, ${who}` : ""}`
           : (expired ?? "Not logged in."),
       fix: !version.ok ? "Reinstall Claude Code" : loggedIn ? null : "Run claude in a terminal and log in with /login",
+      blocking: true,
     });
   }
 
@@ -150,6 +154,5 @@ export async function runDoctor(
     });
   }
 
-  const all = checks.map((c) => ({ ...c, blocking: c.blocking ?? true }));
-  return { ok: all.every((c) => c.ok || !c.blocking), checkedAt: Date.now(), checks: all, viewer };
+  return { ok: checks.every((c) => c.ok || !c.blocking), checkedAt: Date.now(), checks, viewer };
 }
