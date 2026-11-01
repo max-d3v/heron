@@ -15,11 +15,12 @@ export const STATUS_LABEL: Record<PrStatus, string> = {
 };
 
 /** The sidebar's live status: hollow = nothing yet, spinner = running, colours for outcomes. */
-export function StatusDot({ status, className }: { status: PrStatus; className?: string }) {
+export function StatusDot({ status, selected = false }: { status: PrStatus; selected?: boolean }) {
   if (status === "running") {
+    // On the selected row's accent background an accent spinner vanishes, so it turns white instead of taking the ring.
     return (
-      <span className={cn("relative inline-flex size-[10px] shrink-0", className)} aria-label={STATUS_LABEL[status]}>
-        <span className="spin absolute inset-0 rounded-full border-[1.5px] border-accent border-t-transparent" />
+      <span className="relative inline-flex size-[10px] shrink-0" aria-label={STATUS_LABEL[status]}>
+        <span className={cn("spin absolute inset-0 rounded-full border-[1.5px] border-t-transparent", selected ? "border-white" : "border-accent")} />
       </span>
     );
   }
@@ -33,7 +34,9 @@ export function StatusDot({ status, className }: { status: PrStatus; className?:
     cancelled: "border-[1.5px] border-fg-3 bg-fg-3/30",
     superseded: "border-[1.5px] border-fg-3",
   };
-  return <span aria-label={STATUS_LABEL[status]} className={cn("inline-block size-[9px] shrink-0 rounded-full", style[status], className)} />;
+  return (
+    <span aria-label={STATUS_LABEL[status]} className={cn("inline-block size-[9px] shrink-0 rounded-full", style[status], selected && "ring-2 ring-white/70")} />
+  );
 }
 
 type PrState = PrListItem["state"];
@@ -48,5 +51,5 @@ export function prStatusLabel(state: PrState, status: PrStatus): string {
 export function PrIcon({ state, status, selected = false }: { state: PrState; status: PrStatus; selected?: boolean }) {
   if (state === "merged") return <GitMerge aria-label="Merged" className={cn("size-3 shrink-0", selected ? "text-white" : "text-purple")} />;
   if (state === "closed") return <GitPullRequestClosed aria-label="Closed" className={cn("size-3 shrink-0", selected ? "text-white" : "text-fg-3")} />;
-  return <StatusDot status={status} className={cn(selected && "ring-2 ring-white/70")} />;
+  return <StatusDot status={status} selected={selected} />;
 }
