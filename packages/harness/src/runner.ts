@@ -28,6 +28,7 @@ import {
   type TokenUsage,
   type TriageOutput,
 } from "@heron/core";
+import { groupSpawnOptions, killTree, stopTree } from "@heron/platform";
 import { stripEnv } from "./env.ts";
 import { TRIAGE_SYSTEM_PROMPT, buildIterationSystemPromptAppend, buildTriagePrompt, type IterationWorkspace, type TriageItem } from "./iteration-prompt.ts";
 import { buildSystemPromptAppend, type HeronFiles, type PrContext } from "./prompt.ts";
@@ -104,27 +105,14 @@ export class RunAbortedError extends Error {
   }
 }
 
-/** Kill the whole process group, so tools the agent started go too. */
-export function killTree(pid: number, signal: NodeJS.Signals = "SIGTERM"): void {
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // already gone
-    }
-  }
-}
-
 function makeSpawner(onSpawn: (pid: number) => void, onStderr: (text: string) => void) {
   return (o: SpawnOptions): SpawnedProcess => {
     const child = spawn(o.command, o.args, {
       cwd: o.cwd,
       env: o.env as NodeJS.ProcessEnv,
       stdio: ["pipe", "pipe", "pipe"],
-      // Own process group: abort kills the agent and everything it spawned.
-      detached: true,
+      // Stopped as a tree (§17.2): abort kills the agent and everything it spawned.
+      ...groupSpawnOptions(),
     });
     const pid = child.pid;
     if (pid) onSpawn(pid);
@@ -137,8 +125,7 @@ function makeSpawner(onSpawn: (pid: number) => void, onStderr: (text: string) =>
     o.signal.addEventListener(
       "abort",
       () => {
-        killGroup("SIGTERM");
-        setTimeout(() => killGroup("SIGKILL"), 5000).unref();
+        if (pid) void stopTree(pid, 5000);
       },
       { once: true },
     );

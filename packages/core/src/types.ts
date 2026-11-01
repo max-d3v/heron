@@ -470,6 +470,8 @@ export interface Settings {
   allScopeWarningAck: boolean;
   /** Pause from the menu bar survives a restart. */
   manualPause: boolean;
+  /** Windows: the one-time "still running in the system tray" notification was shown (§17.8). */
+  trayHintShown: boolean;
   /** Each skill that ships with Heron → hash of the version last installed. Removing one doesn't bring it back. */
   bundledSkills: Record<string, string>;
 }
@@ -486,6 +488,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyFailed: true,
   allScopeWarningAck: false,
   manualPause: false,
+  trayHintShown: false,
   bundledSkills: {},
 };
 

@@ -21,10 +21,10 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-/** Read the token `gh` is logged in with (it lives in the Keychain, so ask `gh`). */
+/** Read the token `gh` is logged in with (it lives in the Keychain or Credential Manager, so ask `gh`). */
 export async function ghAuthToken(ghPath: string, env: NodeJS.ProcessEnv): Promise<string> {
   try {
-    const { stdout } = await execFileAsync(ghPath, ["auth", "token", "--hostname", "github.com"], { env, timeout: 15_000 });
+    const { stdout } = await execFileAsync(ghPath, ["auth", "token", "--hostname", "github.com"], { env, timeout: 15_000, windowsHide: true });
     const token = stdout.trim();
     if (!token) throw new Error("empty token");
     return token;

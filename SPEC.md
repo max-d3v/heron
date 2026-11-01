@@ -1,6 +1,6 @@
 # Heron — Spec (v1)
 
-A macOS desktop app that uses **your own Claude subscription** as an automatic PR reviewer. You choose which repos and which PRs get reviewed, and how (prompt or skill, model, effort). Heron polls GitHub, runs a Claude agent on a local checkout of each PR, and posts the result as a GitHub review.
+A desktop app for macOS and Windows (§17) that uses **your own Claude subscription** as an automatic PR reviewer. You choose which repos and which PRs get reviewed, and how (prompt or skill, model, effort). Heron polls GitHub, runs a Claude agent on a local checkout of each PR, and posts the result as a GitHub review.
 
 Audience for v1: **only me**. Every choice must still allow a **public** release later (see §13).
 
@@ -17,7 +17,8 @@ Audience for v1: **only me**. Every choice must still allow a **public** release
 - Live UI: pickup, progress and agent steps stream into the app as they happen.
 - Durable pipeline: a persisted state machine with retries and crash/quit recovery.
 - **Iterations** (§15): an agent addresses review feedback on your own PRs, and Heron commits and pushes the result.
-- Menu bar icon, launch-at-login toggle.
+- Menu bar icon (system tray on Windows), launch-at-login toggle.
+- macOS, and Windows 10/11 on x64 (§17).
 
 **Not in v1**
 - Other providers (Codex etc.). The harness is behind an interface so they can be added later.
@@ -29,6 +30,7 @@ Audience for v1: **only me**. Every choice must still allow a **public** release
 - Running in the background after Quit.
 - Tests.
 - Signing, notarization, auto-update (planned for the public release).
+- Linux, and native arm64 Windows builds (§17.1).
 
 ---
 
@@ -78,6 +80,7 @@ heron/
 │   ├── harness/                 # Agent SDK runner: prompt assembly, output contract text (schema from core),
 │   │                            # skill plugin dir, env stripping, stream → AgentStep mapping
 │   ├── rpc/                     # oRPC contract (zod) shared by main + renderer
+│   ├── platform/                # OS differences: env/PATH, which, process trees, setup shell, disk usage (§17.2)
 │   └── config/                  # shared tsconfig / eslint presets
 ├── pnpm-workspace.yaml
 ├── turbo.json
@@ -89,6 +92,7 @@ Dependency rules:
 - `core` depends on nothing internal. Everything else may depend on `core`.
 - `github`, `git`, `harness` don't depend on `db` or on each other. The **scheduler in `apps/desktop/src/main`** combines them. (If it grows, move it into `packages/pipeline`.)
 - `rpc` depends only on `core` types and zod. The renderer imports only `rpc` and `core` types.
+- `platform` depends on nothing internal. `git`, `harness` and `apps/desktop` may use it; none of them check `process.platform` themselves (§17.2).
 - Only `apps/desktop` imports `electron`.
 
 ---
@@ -239,7 +243,7 @@ The posted body gets a hidden marker: `<!-- heron:review sha=<headSha> id=<revie
 
 ### 7.5 Isolation (best effort; the agent has full tools)
 - Remove `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_*` from the environment.
-- Set `GH_CONFIG_DIR` to an empty temp folder, so `gh` appears logged out (its token is in the Keychain).
+- Set `GH_CONFIG_DIR` to an empty temp folder, so `gh` appears logged out (its token is in the Keychain, or Windows Credential Manager).
 - Edits a reviewing agent makes stay in the throwaway worktree and are never pushed. Iterations push the agent's edits, but Heron does the commit and push, never the agent (§15.6).
 - Show a one-time warning when enabling `all` scope: "the agent runs with full tools on other people's code on this Mac."
 
@@ -265,6 +269,7 @@ Map SDK messages to `AgentStep`s: `Reading src/auth.ts`, `Searching "token"`, `R
 - **Iteration worktrees** (§15.5): a second per-PR worktree in `Application Support/Heron/iteration-worktrees/<owner>/<name>/<n>`, removed on the same terms. Results are kept on `refs/heron/iterations/<id>`.
 - **Push** (iterations only): the iteration commit to the PR's head branch, with the same token setup as fetches. Never forced.
 - Uses the user's `git` binary.
+- Paths in this spec are the macOS ones (`~/Library/Application Support/Heron`). On Windows the root is `%LOCALAPPDATA%\Heron`, with the same layout inside (§17.7).
 
 ---
 
@@ -302,7 +307,7 @@ oRPC over a `MessagePort` handed to the renderer through the preload script. Zod
 
 ## 12. UI
 
-Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`, system font, follows light/dark mode. Tailwind + Radix, styled to look like macOS rather than a web dashboard.
+Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`, system font, follows light/dark mode. Tailwind + Radix, styled to look like macOS rather than a web dashboard. Windows keeps the same layout with Windows window chrome (§17.8).
 
 **Main window**
 - **Sidebar:** a flat list sorted by **latest review activity**. Each row: live status dot (queued, running with spinner, posted, failed, not reviewed), an iteration badge (§15.8), title, `repo#n`, author avatar, relative time. At the top: repo filter + search. At the bottom: ⚙ Settings.
@@ -317,19 +322,21 @@ Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`,
 
 **Settings:** Repos (Review and Iteration sections with their own switches; scope, drafts, profile, trust toggle), Profiles (review or iteration kind; prompt editor **or** skill picker, model, effort, limits, read-only output contract box), Skills (import/link, edit `SKILL.md`), General.
 
-**First run / Doctor:** checks `git`, `gh` (installed and logged in), and `claude` (installed and logged in), each with a fix hint. The queue doesn't start until all are green.
+**First run / Doctor:** checks `git`, `gh` (installed and logged in), and `claude` (installed and logged in), each with a fix hint. The queue doesn't start until all are green. Windows adds two rows that warn but never block (§17.8).
 
 **Menu bar icon:** status (idle / N running / paused + reason, N ready to push). Menu: Open, Pause all / Resume, Quit.
 
-**Lifecycle:** closing the window keeps the app running (Dock + tray). **Quit stops everything.** Launch-at-login toggle.
+**Lifecycle:** closing the window keeps the app running (Dock + menu bar; the system tray on Windows, §17.8). **Quit stops everything.** Launch-at-login toggle.
 
 ---
 
 ## 13. Distribution
 
 - **v1:** an unsigned `.dmg` built with electron-builder, for personal use only.
+- **Windows v1:** an unsigned per-user NSIS installer, built by a GitHub Actions Windows job (§17.9).
 - **Public later:**
   - Apple Developer ID, signing and notarization in CI.
+  - Windows code signing, so SmartScreen stops warning.
   - `electron-updater` using GitHub Releases.
   - **Check Anthropic's terms on third-party apps using Claude.ai subscription login**, which includes Agent SDK apps. If needed, add an API-key fallback for auth.
 
@@ -467,3 +474,101 @@ A batch that's triaged while another one waits (`held` or `awaiting_start`) is m
 ## 16. Open questions
 - **Fork PRs in `all` scope:** review them, or skip by default? (Not decided; untrusted code with full tools.)
 - Query layer for SQLite: raw SQL vs Drizzle.
+
+---
+
+## 17. Windows
+
+Heron also runs on Windows, for the same audience as v1 (only me) and with the same features. Only the platform layer differs: tools, processes, shells, paths and window chrome. Linux is out of scope, but nothing here should block it.
+
+### 17.1 Scope
+- Windows 10 22H2 and Windows 11, x64. ARM Windows runs the x64 build under emulation; a native arm64 build waits until someone needs it.
+- Everything in §1 works the same, including iterations and the setup command.
+- An unsigned per-user installer built in CI (§17.9). No auto-update, as on macOS (§13).
+- **Not in scope:** Linux, arm64 builds, code signing, Windows Server, a portable build.
+
+### 17.2 Platform code
+- **`packages/platform`** (new): the Node-level helpers that differ by OS, each with both implementations side by side. `git`, `harness` and the desktop main process use it and contain no `process.platform` checks of their own. It depends on nothing internal and doesn't import `electron`.
+  - `loadEnv()`: the environment tools run with (§17.3). Replaces `loadShellEnv`.
+  - `which(bin, env)`: PATH lookup (§17.3).
+  - `findClaude(env)`: the `claude` executable (§17.4).
+  - `groupSpawnOptions()`: spawn options that let a child and everything it starts be stopped together. `{ detached: true }` on macOS, `{ windowsHide: true }` on Windows.
+  - `killTree(pid, signal)`: stop a process and everything it started (§17.5). Moves here from `harness/runner.ts`.
+  - `processName(pid)`: what a pid is running, for the orphan check (§17.5).
+  - `setupShell(env, gitPath)`: the shell and arguments for the setup command (§17.6).
+  - `diskUsage(path)`: `du -sk` on macOS, a directory walk (`lstat`, symlinks not followed) on Windows. Moves here from `git`.
+- **`apps/desktop/src/main/platform.ts`**: the Electron differences: window options, tray icons, app menu, login item, notifications (§17.8).
+- **Renderer:** the preload sets `data-platform="darwin" | "win32"` on `<html>` (no new API is exposed), and the CSS keys off it. It only lands at `DOMContentLoaded`, after the renderer's modules have run, so script code checks the user agent instead.
+
+### 17.3 Environment and tools
+- **No login-shell probe on Windows.** GUI apps already get the user's full `Path` from the registry. `loadEnv()` starts from `process.env` and drops the same interactive-session variables as on macOS.
+- **Path refresh:** Heron's own `process.env` doesn't change when an installer updates `Path`. So each Doctor run (§12) rebuilds `Path` from `HKCU\Environment` and `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment` (`reg query`, expanding `%VAR%`), and a tool installed while Heron runs is found without a restart. `%USERPROFILE%\.local\bin` (the native Claude installer's folder) is added if missing. macOS keeps its extra folders (`/opt/homebrew/bin` etc.).
+- **Variable names are case-insensitive on Windows**, but a copied env object isn't. `loadEnv()` keeps one key per variable (`Path` stays `Path`; nothing adds a second `PATH`), and `stripEnv` (§7.5) matches names case-insensitively on Windows.
+- **PATH** is split and joined with `path.delimiter`.
+- **`which`** tries each `PATHEXT` extension in each directory, so `git` resolves to `git.exe` and `gh` to `gh.exe`. There's no `/usr/bin/git` fallback on Windows: a missing git is a Doctor failure.
+- **`gh`** keeps its token in Windows Credential Manager. `gh auth token`, the empty `GH_CONFIG_DIR` and the `credential.helper` reset (§7.5) work unchanged; the reset also turns off Git Credential Manager.
+
+### 17.4 Claude Code
+- Heron runs the native `claude.exe`: first from `Path`, then from `%USERPROFILE%\.local\bin\claude.exe`.
+- **Never a `.cmd`.** cmd.exe re-parses arguments, and they can't be escaped reliably; the Python Agent SDK refuses `.cmd` wrappers for the same reason. npm installs the same native binary as an optional dependency, but puts a `claude.cmd` wrapper on `Path`. When that wrapper is all there is, `findClaude` reads it, takes the quoted `.exe` path it launches, and uses that if it exists. Otherwise the Doctor fails, with the native installer as the fix.
+- The agent process is spawned with `groupSpawnOptions()` (§17.2). On Windows that means not `detached`, which would open a console window for it.
+- Claude Code's own Bash tool uses Git Bash when it's installed and PowerShell otherwise. Heron doesn't change that.
+- Config and skills live in `%USERPROFILE%\.claude`, which `homedir()` already resolves to. `~/.claude/skills` paths (§4) stay as they are.
+
+### 17.5 Processes
+- **Stopping:** `killTree` on Windows runs `taskkill /PID <pid> /T /F`. Console processes have no graceful stop, so cancel and timeout kill at once instead of SIGTERM, a 5s wait, then SIGKILL. Recovery is unchanged (§6.4).
+- **Orphans** (§6.4): `processName(pid)` uses `tasklist /FI "PID eq <pid>" /FO CSV /NH` on Windows and `ps -p <pid> -o command=` on macOS. Heron kills a leftover pid only when it's still a `claude` process, as now.
+
+### 17.6 Setup command
+- **Git Bash first**, found the way Claude Code finds it: `CLAUDE_CODE_GIT_BASH_PATH`, then `%ProgramFiles%\Git\bin\bash.exe` and `%LOCALAPPDATA%\Programs\Git\bin\bash.exe`, then `bin\bash.exe` in the Git install that the `git` on `Path` belongs to (`<root>\cmd\git.exe` → `<root>\bin\bash.exe`). It runs `bash.exe -c <command>`, so a command written on macOS (`pnpm install && pnpm build`) works unchanged.
+- **Otherwise PowerShell:** `pwsh.exe -NoProfile -NonInteractive -Command <command>` if `pwsh` is on `Path`, else `powershell.exe` with the same arguments. (Windows PowerShell 5.1 has no `&&`.)
+- Settings → Repos shows, under the setup command, which shell it will run in. The Doctor shows it too, as information (§17.8).
+- Spawned with `groupSpawnOptions()` and stopped with `killTree`, like the agent.
+
+### 17.7 Data and git
+- **Data folder:** `%LOCALAPPDATA%\Heron`, not Electron's default under the roaming `%APPDATA%`. Clones, worktrees and `node_modules` mustn't roam with the user's profile, and the database is no use without them. `HERON_DATA_DIR` still overrides it. The layout inside is the same as on macOS (§9, §15.5).
+- **Clone config**, set on every Heron clone on both platforms (no-ops on macOS). Clones that already exist get it on their next `ensureClone`.
+  - `core.longpaths=true`: worktree paths start around 80 characters deep, and a setup command's `node_modules` can pass Windows' 260-character limit.
+  - `core.autocrlf=false`: Git for Windows installs with `autocrlf=true`, which would check out CRLF and let iteration commits change line endings. With it off, worktrees match the repo byte for byte, and `.gitattributes` still applies. Local checkout mode (§15.5) uses the user's own config.
+- **Long paths in Windows itself:** the Doctor warns, without blocking, when `LongPathsEnabled` under `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem` isn't 1. Turning it on needs admin, so the fix text explains how.
+- **Agent paths:** on Windows the agent may write `src\auth.ts`. Paths in its output (§7.4) and in step labels (§7.6) are normalized to `/` before they're validated against the diff or shown.
+- **Path checks:** `revealPath` tests containment with `path.relative` (case-insensitive on Windows) instead of `startsWith`. `~` expansion in the local checkout path also accepts `~\`.
+
+### 17.8 UI
+- **Window:** `titleBarStyle: "hidden"` with `titleBarOverlay`. Windows draws minimize/maximize/close at the top right, 52px tall to match the drag region, in colors that follow light/dark (`setTitleBarOverlay` on `nativeTheme` changes). Windows 11 gets `backgroundMaterial: "mica"` with the sidebar transparent, like vibrancy on macOS. Windows 10 gets solid backgrounds, with the sidebar in its own color token.
+- **Layout:** no 84px traffic-light gap in the sidebar. The detail header and the Settings toolbar leave room on the right for the window buttons, using the `titlebar-area-x` / `titlebar-area-width` CSS env variables rather than a fixed width.
+- **Menu:** no application menu on Windows (`Menu.setApplicationMenu(null)`), so no File/Edit bar. The renderer handles Ctrl+, for Settings. Dev builds keep reload and devtools on Ctrl+R and Ctrl+Shift+I. Quit is in the tray menu.
+- **Labels:** "⌘," becomes "Ctrl+,", "Show in Finder" becomes "Show in Explorer", "this Mac" becomes "this computer".
+- **Tray:** colored icons (Windows doesn't recolor template images) in three states: idle, running, paused. Left-click opens the window; right-click shows the §12 menu. The running and ready-to-push counts go in the tooltip, since `setTitle` is macOS-only. While the window is open, its taskbar button shows the running count as an overlay badge (`setOverlayIcon`, with bundled 1–9 and 9+ images).
+- **Closing the window** hides it to the tray. The first time, a notification says Heron is still running in the system tray and how to pin the icon so it doesn't sit in the hidden-icons area. It's shown once, remembered in settings.
+- **Launch at login** registers with `--hidden`. Started with `--hidden`, Heron runs without showing the window.
+- **Notifications:** `app.setAppUserModelId("dev.heron.desktop")` at startup, so toasts are attributed to Heron and clicks reach the app.
+- **Doctor:** Windows fix hints are `winget install Git.Git`; `winget install GitHub.cli`, then `gh auth login`; and for Claude, `irm https://claude.ai/install.ps1 | iex` in PowerShell, then `claude` to log in. Two more rows never block the queue: the setup shell (§17.6) and long paths (§17.7). `DoctorCheck` gets `blocking` (default true), the report's `ok` counts only blocking checks, and failed non-blocking checks show as warnings.
+
+### 17.9 Build and distribution
+- **electron-builder `win`:** `nsis`, x64, per-user (`oneClick: true`, `perMachine: false`), so installing needs no admin. Unsigned, so SmartScreen warns on first run (More info → Run anyway). The icon comes from `build/icon.png`, which is above the 256px minimum.
+- **Scripts:** `dist:win` = `electron-vite build && electron-builder --win --x64 --publish never` (on a tag in CI, electron-builder would otherwise try to publish a GitHub release). `dist` stays macOS.
+- **Built on Windows only**, by the CI job below. (`better-sqlite3` isn't what ties it to Windows: the version in use (13) carries prebuilds for every platform in its npm package, `win32-x64.node` included, and loads the one for the OS it runs on. With `npmRebuild: false` the package ships them all as they are.)
+- **CI:** `.github/workflows/windows.yml` on `windows-latest`, run manually (`workflow_dispatch`) and on `v*` tags: `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm dist:win`, then upload the installer as a workflow artifact.
+- The `!node_modules/@anthropic-ai/claude-agent-sdk-*/**` exclusion stays; it covers the SDK's Windows binaries too.
+- The README gets the Windows requirements and how to get the installer.
+
+### 17.10 Manual test pass
+No automated tests, as in §1. Before Windows counts as done, on a Windows 11 VM:
+- Install and first run, with every Doctor row green. Then again with Git Bash hidden (setup falls back to PowerShell), and with `LongPathsEnabled` off (a warning; the queue still runs).
+- Claude installed by the native installer, then by npm only.
+- Add a repo: a review posts, with inline comments on the right lines.
+- An iteration in worktree mode with `pnpm install` as the setup command: the commit has no line-ending changes, and the push and replies work.
+- Cancel a running review and a running setup command: no `claude.exe`, `node.exe` or `bash.exe` is left behind.
+- Quit during a run and reopen: recovery (§6.4) works and no orphan is left.
+- Window buttons and Mica in light and dark mode, dragging by the title area, Ctrl+,.
+- Tray states, left and right click, the close-to-tray hint shown once, the overlay badge.
+- Launch at login starts hidden. A notification click opens its PR.
+
+### 17.11 To check while building
+- The exact contents of npm's `claude.cmd`, and where WinGet puts `claude.exe`.
+- Whether the Agent SDK puts anything on the command line (system prompt append, output schema, settings) that could approach Windows' 32,767-character limit.
+- That `taskkill /T` reaches processes started inside Git Bash (MSYS processes can leave the Windows process tree).
+- That `getLoginItemSettings({ args: ["--hidden"] })` reports `openAtLogin` correctly, so the startup sync between `launchAtLogin` and the OS doesn't flip it every launch.
+- That Electron 45's `titleBarOverlay`, `backgroundMaterial: "mica"` and the `titlebar-area-*` env variables behave as described in both themes.
+- That `better-sqlite3` has a win32-x64 prebuild that loads in Electron 45.

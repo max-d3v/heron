@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, FolderOpen, Link, Plus, Sparkles, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "../lib/cn";
+import { labels } from "../lib/platform";
 import { errorText, orpc } from "../lib/rpc";
 import { Badge, Button, Confirm, Dialog, Empty, ErrorNote, Spinner, TextArea } from "../components/ui";
 
@@ -104,7 +105,7 @@ function SkillEditor({ skill, onRemoved }: { skill: SkillDto; onRemoved: () => v
           </div>
         </div>
         <Button size="sm" icon={<FolderOpen className="size-3.5" />} onClick={() => reveal.mutate({ id: skill.id })}>
-          Show in Finder
+          {labels.showInFileManager}
         </Button>
       </div>
 
@@ -130,7 +131,7 @@ function SkillEditor({ skill, onRemoved }: { skill: SkillDto; onRemoved: () => v
           )}
           {files.data && files.data.files.length > 1 && (
             <div>
-              <div className="mb-1 text-[12px] font-medium text-fg-2">Other files (view in Finder)</div>
+              <div className="mb-1 text-[12px] font-medium text-fg-2">Other files (view in {labels.fileManager})</div>
               <div className="rounded-[8px] bg-content-2 py-1 shadow-[0_0_0_0.5px_var(--line)]">
                 {files.data.files
                   .filter((f) => f !== "SKILL.md")

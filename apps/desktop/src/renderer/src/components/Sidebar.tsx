@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import { relativeTime } from "../lib/format";
 import { useNow } from "../lib/hooks";
+import { labels } from "../lib/platform";
 import { client } from "../lib/rpc";
 import { isListed } from "../lib/visibility";
 import { Avatar } from "./Avatar";
@@ -52,8 +53,9 @@ export function Sidebar({
   }, [prs, search, repo, showAll]);
 
   return (
-    <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-line">
-      <div className="drag flex h-[52px] shrink-0 items-center justify-end gap-1 pl-[84px] pr-2.5">
+    <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-line bg-sidebar">
+      {/* Room for the traffic lights on macOS; Windows has its window buttons at the top right. */}
+      <div className="drag flex h-[52px] shrink-0 items-center justify-end gap-1 pl-[84px] pr-2.5 win:pl-2.5">
         <QueueIndicator queue={queue} />
       </div>
 
@@ -98,7 +100,7 @@ export function Sidebar({
       </div>
 
       <div className="flex h-[38px] shrink-0 items-center justify-between border-t border-line px-2">
-        <IconButton label="Settings (⌘,)" onClick={onOpenSettings}>
+        <IconButton label={`Settings (${labels.settingsShortcut})`} onClick={onOpenSettings}>
           <Settings className="size-[15px]" />
         </IconButton>
         {hiddenCount > 0 || showAll ? (

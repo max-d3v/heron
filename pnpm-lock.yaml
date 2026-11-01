@@ -63,6 +63,9 @@ importers:
       '@heron/harness':
         specifier: workspace:*
         version: link:../../packages/harness
+      '@heron/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
       '@heron/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
@@ -220,9 +223,24 @@ importers:
       '@heron/core':
         specifier: workspace:*
         version: link:../core
+      '@heron/platform':
+        specifier: workspace:*
+        version: link:../platform
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+    devDependencies:
+      '@heron/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+      typescript:
+        specifier: ~6.0.3
+        version: 6.0.3
+
+  packages/platform:
     devDependencies:
       '@heron/config':
         specifier: workspace:*

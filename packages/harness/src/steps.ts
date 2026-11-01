@@ -1,4 +1,4 @@
-import { relative, isAbsolute } from "node:path";
+import { relative, isAbsolute, sep } from "node:path";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentStep } from "@heron/core";
 
@@ -7,12 +7,16 @@ const clip = (s: string, n: number) => {
   return one.length > n ? `${one.slice(0, n - 1)}…` : one;
 };
 
+/** A path as labels show it: relative to the checkout when inside it, with `/` on every platform (§17.7). */
 function rel(cwd: string, p: unknown): string {
   if (typeof p !== "string" || !p) return "";
-  if (!isAbsolute(p)) return p;
+  if (!isAbsolute(p)) return slashes(p);
   const r = relative(cwd, p);
-  return r.startsWith("..") ? p : r || ".";
+  return slashes(r.startsWith("..") ? p : r || ".");
 }
+
+/** On Windows the agent writes, and `relative` returns, `src\auth.ts`. A no-op on macOS. */
+const slashes = (p: string) => p.split(sep).join("/");
 
 function toolStep(cwd: string, name: string, input: Record<string, unknown>): AgentStep {
   switch (name) {

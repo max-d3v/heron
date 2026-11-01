@@ -2,17 +2,34 @@ import { execFile } from "node:child_process";
 import type { DoctorCheck, DoctorReport } from "@heron/rpc";
 import type { GitHubClient } from "@heron/github";
 import { verifyClaudeLogin } from "@heron/harness";
-import type { Binaries } from "./env.ts";
+import { longPathsEnabled, setupShell, which, type Binaries } from "@heron/platform";
+import { isWindows } from "./platform.ts";
+
+/** How to install each tool (§12, §17.8). */
+const INSTALL = isWindows
+  ? {
+      git: "winget install Git.Git",
+      gh: "winget install GitHub.cli, then gh auth login",
+      claude: "irm https://claude.ai/install.ps1 | iex (in PowerShell), then run claude and log in",
+    }
+  : {
+      git: "Install the Xcode Command Line Tools: xcode-select --install",
+      gh: "brew install gh, then gh auth login",
+      claude: "curl -fsSL https://claude.ai/install.sh | bash, then run claude and log in",
+    };
 
 function run(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    execFile(bin, args, { env, timeout: 20_000 }, (err, stdout, stderr) => {
+    execFile(bin, args, { env, timeout: 20_000, windowsHide: true }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: String(stdout), stderr: String(stderr) });
     });
   });
 }
 
-/** git, gh and claude: installed and logged in (§12). The queue waits until all pass. */
+/**
+ * git, gh and claude: installed and logged in (§12). The queue waits until all pass. Windows adds
+ * two rows that only warn: the setup shell and long paths (§17.8).
+ */
 export async function runDoctor(
   bins: Binaries,
   env: NodeJS.ProcessEnv,
@@ -24,7 +41,7 @@ export async function runDoctor(
 
   // git
   if (!bins.git) {
-    checks.push({ id: "git", label: "git", ok: false, detail: "Not found on your PATH.", fix: "Install the Xcode Command Line Tools: xcode-select --install" });
+    checks.push({ id: "git", label: "git", ok: false, detail: "Not found on your PATH.", fix: INSTALL.git, blocking: true });
   } else {
     const r = await run(bins.git, ["--version"], env);
     checks.push({
@@ -32,22 +49,23 @@ export async function runDoctor(
       label: "git",
       ok: r.ok,
       detail: r.ok ? `${r.stdout.trim()} (${bins.git})` : r.stderr.trim(),
-      fix: r.ok ? null : "Install the Xcode Command Line Tools: xcode-select --install",
+      fix: r.ok ? null : INSTALL.git,
+      blocking: true,
     });
   }
 
   // gh
   if (!bins.gh) {
-    checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not found on your PATH.", fix: "brew install gh, then gh auth login" });
+    checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not found on your PATH.", fix: INSTALL.gh, blocking: true });
   } else {
     const status = await run(bins.gh, ["auth", "status", "--hostname", "github.com"], env);
     if (!status.ok) {
-      checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not logged in to github.com.", fix: "gh auth login" });
+      checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not logged in to github.com.", fix: "gh auth login", blocking: true });
     } else {
       try {
         github.resetAuth();
         viewer = await github.viewer();
-        checks.push({ id: "gh", label: "GitHub CLI", ok: true, detail: `Logged in as ${viewer.login}`, fix: null });
+        checks.push({ id: "gh", label: "GitHub CLI", ok: true, detail: `Logged in as ${viewer.login}`, fix: null, blocking: true });
       } catch (err) {
         checks.push({
           id: "gh",
@@ -55,6 +73,7 @@ export async function runDoctor(
           ok: false,
           detail: `The gh token doesn't work with the API: ${err instanceof Error ? err.message : String(err)}`,
           fix: "gh auth refresh -h github.com -s repo",
+          blocking: true,
         });
       }
     }
@@ -62,12 +81,15 @@ export async function runDoctor(
 
   // claude
   if (!bins.claude) {
+    // Windows: npm's claude.cmd can be on Path without the claude.exe it launches (§17.4).
+    const wrapper = which("claude", env);
     checks.push({
       id: "claude",
       label: "Claude Code",
       ok: false,
-      detail: "Not found on your PATH.",
-      fix: "curl -fsSL https://claude.ai/install.sh | bash, then run claude and log in",
+      detail: wrapper ? `Only ${wrapper} was found, and Heron runs the native claude.exe, never a wrapper.` : "Not found on your PATH.",
+      fix: INSTALL.claude,
+      blocking: true,
     });
   } else {
     const version = await run(bins.claude, ["--version"], env);
@@ -100,8 +122,37 @@ export async function runDoctor(
           ? `${version.stdout.trim()}${who ? `, ${who}` : ""}`
           : (expired ?? "Not logged in."),
       fix: !version.ok ? "Reinstall Claude Code" : loggedIn ? null : "Run claude in a terminal and log in with /login",
+      blocking: true,
     });
   }
 
-  return { ok: checks.every((c) => c.ok), checkedAt: Date.now(), checks, viewer };
+  if (isWindows) {
+    // Setup commands are written for bash; PowerShell may not run them (§17.6).
+    const shell = setupShell(env, bins.git);
+    const bash = shell.name === "Git Bash";
+    checks.push({
+      id: "shell",
+      label: "Setup shell",
+      ok: bash,
+      detail: bash ? `Setup commands run in Git Bash (${shell.path}).` : `Setup commands run in ${shell.name} (${shell.path}), so one written for bash may fail.`,
+      fix: bash ? null : INSTALL.git,
+      blocking: false,
+    });
+  }
+
+  const longPaths = await longPathsEnabled();
+  if (longPaths !== null) {
+    checks.push({
+      id: "longPaths",
+      label: "Long paths",
+      ok: longPaths,
+      detail: longPaths
+        ? "Windows accepts paths over 260 characters."
+        : "Windows limits paths to 260 characters, which a setup command's node_modules can pass. Turning the limit off needs an administrator PowerShell; restart Heron after:",
+      fix: longPaths ? null : 'New-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force',
+      blocking: false,
+    });
+  }
+
+  return { ok: checks.every((c) => c.ok || !c.blocking), checkedAt: Date.now(), checks, viewer };
 }

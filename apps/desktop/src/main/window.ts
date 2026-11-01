@@ -1,5 +1,6 @@
 import { BrowserWindow, nativeTheme, session, shell } from "electron";
 import { join } from "node:path";
+import { rendererArgs, setUpWindow, windowChrome } from "./platform.ts";
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL;
 
@@ -28,21 +29,19 @@ export function createMainWindow(preloadDir: string, rendererDir: string): Brows
     minHeight: 520,
     show: false,
     title: "Heron",
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 18, y: 18 },
-    vibrancy: "sidebar",
-    visualEffectState: "followWindow",
-    backgroundColor: "#00000000",
+    ...windowChrome(),
     webPreferences: {
       preload: join(preloadDir, "index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      additionalArguments: rendererArgs,
     },
   });
 
   win.once("ready-to-show", () => win.show());
+  setUpWindow(win);
 
   // Never navigate the app window away; links open in the browser.
   win.webContents.setWindowOpenHandler(({ url }) => {

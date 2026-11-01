@@ -15,8 +15,8 @@ export function Banner({ queue, onOpenSetup }: { queue: QueueStatusDto | null; o
     <div
       className={
         problem
-          ? "flex shrink-0 items-center gap-2.5 border-b border-line bg-[color-mix(in_srgb,var(--red)_9%,var(--content))] px-5 py-2"
-          : "flex shrink-0 items-center gap-2.5 border-b border-line bg-[color-mix(in_srgb,var(--orange)_10%,var(--content))] px-5 py-2"
+          ? "flex shrink-0 items-center gap-2.5 border-b border-line bg-[color-mix(in_srgb,var(--red)_9%,var(--content))] py-2 pl-5 pr-[calc(1.25rem_+_var(--titlebar-right))]"
+          : "flex shrink-0 items-center gap-2.5 border-b border-line bg-[color-mix(in_srgb,var(--orange)_10%,var(--content))] py-2 pl-5 pr-[calc(1.25rem_+_var(--titlebar-right))]"
       }
     >
       {problem ? <TriangleAlert className="size-4 shrink-0 text-bad" /> : <Pause className="size-4 shrink-0 text-warn" />}

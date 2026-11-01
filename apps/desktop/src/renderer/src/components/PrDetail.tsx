@@ -155,7 +155,8 @@ function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
   const error = reviewNow.error ?? rerun.error ?? cancel.error;
 
   return (
-    <header className="drag shrink-0 px-5 pb-3 pt-[14px]">
+    // On Windows the right padding clears the window buttons drawn over this corner.
+    <header className="drag shrink-0 pb-3 pl-5 pr-[calc(1.25rem_+_var(--titlebar-right))] pt-[14px]">
       <div className="flex items-start gap-4">
         {/* The text opts out of dragging so it can be selected and its tooltips work; the gaps still move the window. */}
         <div className="no-drag min-w-0 flex-1">

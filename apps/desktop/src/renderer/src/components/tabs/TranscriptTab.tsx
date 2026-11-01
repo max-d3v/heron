@@ -5,6 +5,7 @@ import { useState } from "react";
 import { cn } from "../../lib/cn";
 import { isInFlightIteration } from "../../lib/iterations";
 import { shortSha } from "../../lib/format";
+import { labels } from "../../lib/platform";
 import { client, errorText, orpc } from "../../lib/rpc";
 import { isInFlightRun } from "../PrDetail";
 import { Button, Empty, ErrorNote, Spinner } from "../ui";
@@ -59,7 +60,7 @@ export function TranscriptTab({ target }: { target: TranscriptTarget | null }) {
         </span>
         {path && (
           <Button size="sm" variant="ghost" icon={<FolderOpen className="size-3.5" />} onClick={() => void client.app.revealPath({ path })}>
-            Show in Finder
+            {labels.showInFileManager}
           </Button>
         )}
       </div>

@@ -1,6 +1,6 @@
 # Heron
 
-Run automatic code reviews on your GitHub pull requests using your Claude Code subscription. A highly configurable macOS app, now with [iterations](#iterations-review-fix-repeat): Heron reviews, Claude fixes, repeat.
+Run automatic code reviews on your GitHub pull requests using your Claude Code subscription. A highly configurable app for macOS and Windows, now with [iterations](#iterations-review-fix-repeat): Heron reviews, Claude fixes, repeat.
 
 <!-- TODO: demo video. Drag the .mp4 into this file on github.com to get an embed link, then paste it here. -->
 
@@ -14,7 +14,7 @@ https://github.com/user-attachments/assets/6c38713a-68e7-4abe-ae0a-b169fc9feacf
 ## How it works
 
 1. Heron checks your chosen repos on GitHub every 10 seconds.
-2. When a pull request is opened or pushed to, Heron checks it out on your Mac and runs Claude Code on it.
+2. When a pull request is opened or pushed to, Heron checks it out on your computer and runs Claude Code on it.
 3. Claude's review is posted to the pull request as comments from your GitHub account.
 
 A burst of pushes gets one review: Heron waits 5 seconds after each push before starting. Pushing again during a review cancels it and reviews the new commit.
@@ -29,9 +29,16 @@ A burst of pushes gets one review: Heron waits 5 seconds after each push before 
 
 On launch, Heron checks all three and shows how to fix anything missing. Reviews don't start until they all pass.
 
+On Windows:
+
+- `git`: `winget install Git.Git`. Git for Windows also brings Git Bash, which runs the [setup command](#settings) (PowerShell without it).
+- `gh`: `winget install GitHub.cli`, then `gh auth login`.
+- `claude`: the native installer, in PowerShell: `irm https://claude.ai/install.ps1 | iex`, then run `claude` to log in. Heron runs `claude.exe` itself, never npm's `claude.cmd` wrapper.
+- Optional: turn on long paths (`LongPathsEnabled`, needs admin) if a setup command's `node_modules` gets deep. The Doctor shows the command.
+
 ### 2. Build and open the app
 
-Needs Node 22+ and pnpm 11.
+**macOS** (Apple silicon). Needs Node 22+ and pnpm 11.
 
 ```bash
 pnpm install
@@ -39,6 +46,10 @@ pnpm dist           # → apps/desktop/dist/Heron-<version>-arm64.dmg
 ```
 
 The build is unsigned, so the first time you open it, right-click the app → Open.
+
+**Windows** 10 22H2 or 11, x64 (ARM PCs run it under emulation). The installer is built on Windows by GitHub Actions: run the **Windows** workflow (Actions → Windows → Run workflow), or push a `v*` tag, and download `heron-windows-installer` from the run's artifacts. On a Windows machine you can also build it yourself with `pnpm install` and `pnpm dist:win`.
+
+It installs for your user only, with no admin prompt. It's unsigned, so SmartScreen warns the first time: More info → Run anyway.
 
 ### 3. Add a repository
 
@@ -109,14 +120,14 @@ Settings → **General** has parallel iterations (2), the wait after the last co
 - Only pull requests you opened from a branch in the same repo. Forks and other people's PRs are never changed.
 - Heron never force-pushes. If the branch moves mid-run, the result is dropped and the comments run again on the new commit.
 - No dry run: to post nothing, leave **Push automatically** and **Replies** off.
-- With **All comments**, anyone who can comment on your PR can steer Claude, which runs with full tools on your Mac. Check the diff before you push, or use **My comments**.
+- With **All comments**, anyone who can comment on your PR can steer Claude, which runs with full tools on your computer. Check the diff before you push, or use **My comments**.
 
 ## Good to know
 
 - Reviews are posted as you, as a plain comment review (never approve or request changes).
-- Claude runs with full tools on the pull request's code on your Mac. Be careful with **All PRs** on repos where people you don't know can open pull requests.
-- Closing the window keeps Heron running in the menu bar. Quitting stops all reviews; they resume on the next launch.
-- Data lives in `~/Library/Application Support/Heron`.
+- Claude runs with full tools on the pull request's code on your computer. Be careful with **All PRs** on repos where people you don't know can open pull requests.
+- Closing the window keeps Heron running in the menu bar (the system tray on Windows). Quitting stops all reviews; they resume on the next launch.
+- Data lives in `~/Library/Application Support/Heron` (`%LOCALAPPDATA%\Heron` on Windows).
 
 ## Develop
 

@@ -386,6 +386,7 @@ export const settings = z.object({
   notifyFailed: z.boolean(),
   allScopeWarningAck: z.boolean(),
   manualPause: z.boolean(),
+  trayHintShown: z.boolean(),
   bundledSkills: z.record(z.string(), z.string()),
 });
 
@@ -401,14 +402,18 @@ export const queueStatus = z.object({
 });
 
 export const doctorCheck = z.object({
-  id: z.enum(["git", "gh", "claude"]),
+  /** `shell` and `longPaths` are Windows-only rows (§17.8). */
+  id: z.enum(["git", "gh", "claude", "shell", "longPaths"]),
   label: z.string(),
   ok: z.boolean(),
   detail: z.string(),
   fix: z.string().nullable(),
+  /** A failed check holds the queue. A failed non-blocking one is only a warning. */
+  blocking: z.boolean(),
 });
 
 export const doctorReport = z.object({
+  /** Every blocking check passed. */
   ok: z.boolean(),
   checkedAt: z.number(),
   checks: z.array(doctorCheck),
@@ -446,6 +451,8 @@ export const contract = {
     remove: oc.input(byId),
     /** Opens a folder picker for the local checkout; null when cancelled. */
     pickCheckout: oc.input(byId).output(z.string().nullable()),
+    /** The shell setup commands run in (Git Bash or PowerShell on Windows, §17.6). */
+    setupShell: oc.output(z.object({ name: z.string(), path: z.string() })),
   },
   profiles: {
     list: oc.output(z.array(profile)),

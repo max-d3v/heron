@@ -5,7 +5,7 @@ import { defineConfig } from "electron-vite";
 
 // Workspace packages export TypeScript source, so they're bundled; third-party
 // dependencies stay external and ship in node_modules.
-const workspace = ["@heron/core", "@heron/db", "@heron/git", "@heron/github", "@heron/harness", "@heron/rpc"];
+const workspace = ["@heron/core", "@heron/db", "@heron/git", "@heron/github", "@heron/harness", "@heron/platform", "@heron/rpc"];
 
 export default defineConfig({
   main: {

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** Everything Heron stores lives under Application Support/Heron. */
+/** Everything Heron stores lives under Application Support/Heron (%LOCALAPPDATA%\Heron on Windows, §17.7). */
 export function makePaths(root: string) {
   const paths = {
     root,

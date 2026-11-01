@@ -3,7 +3,6 @@ export {
   runIteration,
   runTriage,
   RunAbortedError,
-  killTree,
   linkedSkillDir,
   type HarnessEntry,
   type RunReviewOptions,

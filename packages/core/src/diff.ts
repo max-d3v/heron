@@ -170,7 +170,10 @@ export function validateAgainstDiff(output: ReviewOutput, files: DiffFile[]): Re
   const moved: ReviewComment[] = [];
 
   for (const raw of output.comments) {
-    const c: ReviewComment = { ...raw, path: raw.path.replace(/^\.?\//, "") };
+    // On Windows the agent may write `src\auth.ts` (§17.7); the diff always uses `/`.
+    let path = raw.path.replace(/^\.?\//, "");
+    if (!byPath.has(path)) path = path.replace(/\\/g, "/").replace(/^\.?\//, "");
+    const c: ReviewComment = { ...raw, path };
     const file = byPath.get(c.path);
     const side: Side = c.side ?? "RIGHT";
     if (!file || file.binary) {

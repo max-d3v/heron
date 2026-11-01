@@ -1,21 +1,22 @@
-import { Menu, Notification, app, dialog, ipcMain, powerMonitor, shell, type BrowserWindow } from "electron";
+import { Notification, app, dialog, ipcMain, powerMonitor, shell, type BrowserWindow } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RPCHandler } from "@orpc/server/message-port";
-import { AuthError, DEFAULT_PROFILE, EFFORT_LEVELS, MODEL_ALIASES, type Settings } from "@heron/core";
+import { AuthError, DEFAULT_PROFILE, EFFORT_LEVELS, MODEL_ALIASES, PermanentError, type QueueStatus, type Settings } from "@heron/core";
 import { HeronDb } from "@heron/db";
 import { GitClient } from "@heron/git";
 import { GitHubClient, ghAuthToken } from "@heron/github";
 import { probeClaude } from "@heron/harness";
+import { FALLBACK_GIT, loadEnv, resolveBinaries, setupShell, type Binaries } from "@heron/platform";
 import type { DoctorReport, ModelOption } from "@heron/rpc";
 import { createBus } from "./bus.ts";
 import { CommitStatusReporter } from "./commit-status.ts";
 import { runDoctor } from "./doctor.ts";
-import { loadShellEnv, resolveBinaries, type Binaries } from "./env.ts";
 import { ensureLayout, makePaths } from "./paths.ts";
 import { IterationPipeline } from "./iteration-pipeline.ts";
 import { IterationScheduler } from "./iterations.ts";
 import { Pipeline } from "./pipeline.ts";
+import { dataRoot, initPlatform, installAppMenu, loginItem, setRunningBadge, showTrayHint, startedHidden } from "./platform.ts";
 import { Poller } from "./poller.ts";
 import { DEFAULT_PROMPT } from "./prompts.ts";
 import { createRouter } from "./router.ts";
@@ -27,7 +28,8 @@ import { createMainWindow, installCsp } from "./window.ts";
 
 app.setName("Heron");
 // HERON_DATA_DIR keeps a development copy apart from the real data.
-app.setPath("userData", process.env.HERON_DATA_DIR ?? join(app.getPath("appData"), "Heron"));
+app.setPath("userData", process.env.HERON_DATA_DIR ?? dataRoot());
+initPlatform();
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -73,7 +75,7 @@ async function main(): Promise<void> {
 
   const bus = createBus();
   const store = new Store(db, bus);
-  let env: NodeJS.ProcessEnv = await loadShellEnv();
+  let env: NodeJS.ProcessEnv = await loadEnv();
   let bins: Binaries = resolveBinaries(env);
   let doctorReport: DoctorReport | null = null;
   let viewerLogin: string | null = null;
@@ -83,7 +85,11 @@ async function main(): Promise<void> {
     userAgent: `heron/${version}`,
   });
   const git = new GitClient({
-    gitPath: () => bins.git ?? "/usr/bin/git",
+    gitPath: () => {
+      const path = bins.git ?? FALLBACK_GIT;
+      if (!path) throw new PermanentError("git isn't installed (see Settings → General → Setup)");
+      return path;
+    },
     env: () => env,
     getToken: () => (bins.gh ? ghAuthToken(bins.gh, env) : Promise.reject(new AuthError("github", "The GitHub CLI (gh) isn't installed"))),
   });
@@ -91,19 +97,22 @@ async function main(): Promise<void> {
 
   let mainWindow: BrowserWindow | null = null;
   let quitConfirmed = false;
+  let queueStatus: QueueStatus | null = null;
   const showWindow = () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       mainWindow = createMainWindow(preloadDir, rendererDir);
       mainWindow.on("close", (e) => {
         if (!quitConfirmed) {
-          // Closing the window keeps Heron running in the Dock and menu bar.
+          // Closing the window keeps Heron running in the Dock and menu bar (the system tray on Windows).
           e.preventDefault();
           mainWindow?.hide();
+          if (!settings().trayHintShown && showTrayHint(showWindow)) db.setSettings({ trayHintShown: true });
         }
       });
     }
     mainWindow.show();
     mainWindow.focus();
+    setRunningBadge(mainWindow, queueStatus?.running ?? 0, resourcesDir);
   };
 
   const notify = (n: { title: string; body: string; prId: number; tab?: "iteration" }) => {
@@ -127,6 +136,7 @@ async function main(): Promise<void> {
     version,
     env: () => env,
     claudePath: () => bins.claude,
+    gitPath: () => bins.git,
     viewerLogin: () => viewerLogin,
   });
   // eslint-disable-next-line prefer-const -- assigned after the scheduler, which needs a reference to it
@@ -177,7 +187,7 @@ async function main(): Promise<void> {
   let doctorRunning: Promise<DoctorReport> | null = null;
   const doctor = (): Promise<DoctorReport> => {
     doctorRunning ??= (async () => {
-      env = await loadShellEnv();
+      env = await loadEnv();
       bins = resolveBinaries(env);
       const report = await runDoctor(bins, env, github, { ghConfigDir: paths.ghConfig, cwd: paths.root });
       doctorReport = report;
@@ -213,9 +223,7 @@ async function main(): Promise<void> {
     const before = settings();
     const { manualPause, ...rest } = patch;
     db.setSettings(rest);
-    if (patch.launchAtLogin !== undefined && patch.launchAtLogin !== before.launchAtLogin) {
-      app.setLoginItemSettings({ openAtLogin: patch.launchAtLogin });
-    }
+    if (patch.launchAtLogin !== undefined && patch.launchAtLogin !== before.launchAtLogin) loginItem.set(patch.launchAtLogin);
     if (manualPause !== undefined && manualPause !== before.manualPause) scheduler.pauseManual(manualPause);
     bus.publish("app", { kind: "config", what: "settings" });
     scheduler.tick();
@@ -238,6 +246,7 @@ async function main(): Promise<void> {
       paths,
       version,
       claudePath: () => bins.claude,
+      setupShell: () => setupShell(env, bins.git),
       viewerLogin: () => viewerLogin,
       doctor: { last: () => doctorReport, run: doctor },
       models,
@@ -261,7 +270,7 @@ async function main(): Promise<void> {
   });
 
   installCsp();
-  buildAppMenu(() => {
+  installAppMenu(() => {
     showWindow();
     bus.publish("app", { kind: "openSettings" });
   });
@@ -277,13 +286,16 @@ async function main(): Promise<void> {
     resume: () => scheduler.pauseManual(false),
     quit: () => app.quit(),
   });
-  bus.subscribe("queue", (status) => tray.update(status));
+  bus.subscribe("queue", (status) => {
+    queueStatus = status;
+    tray.update(status);
+    if (mainWindow) setRunningBadge(mainWindow, status.running, resourcesDir);
+  });
 
-  if (settings().launchAtLogin !== app.getLoginItemSettings().openAtLogin) {
-    app.setLoginItemSettings({ openAtLogin: settings().launchAtLogin });
-  }
+  if (settings().launchAtLogin !== loginItem.get()) loginItem.set(settings().launchAtLogin);
 
-  showWindow();
+  // Launch at login starts Heron in the tray on Windows (§17.8).
+  if (!startedHidden) showWindow();
   await scheduler.start();
   await iterations.start();
   poller.start();
@@ -333,39 +345,4 @@ async function main(): Promise<void> {
       app.quit();
     })();
   });
-}
-
-function buildAppMenu(openSettings: () => void): void {
-  const isDev = !app.isPackaged;
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      {
-        label: "Heron",
-        submenu: [
-          { role: "about" },
-          { type: "separator" },
-          { label: "Settings…", accelerator: "Command+,", click: openSettings },
-          { type: "separator" },
-          { role: "hide" },
-          { role: "hideOthers" },
-          { role: "unhide" },
-          { type: "separator" },
-          { role: "quit" },
-        ],
-      },
-      { role: "editMenu" },
-      {
-        label: "View",
-        submenu: [
-          ...(isDev ? ([{ role: "reload" }, { role: "toggleDevTools" }, { type: "separator" }] as const) : []),
-          { role: "resetZoom" },
-          { role: "zoomIn" },
-          { role: "zoomOut" },
-          { type: "separator" },
-          { role: "togglefullscreen" },
-        ],
-      },
-      { role: "windowMenu" },
-    ]),
-  );
 }
