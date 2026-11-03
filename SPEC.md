@@ -107,7 +107,7 @@ Dependency rules:
 | `includeDrafts` | Default **off**. Not shown for `manual`. |
 | `profileId` | `null` → default profile |
 | `trustRepoClaudeConfig` | Default **off**. When on, also loads the repo's `.claude/` (`settingSources` gains `project`). |
-| `dryRun` | Default **off**, in the Review section. Reviews run but post nothing (no review, no `heron/review` check); results show in the app only. Iterations have no dry run: **Push** is their gate (§15.2). |
+| `dryRun` | Default **off**, in the Review section. Reviews run but post nothing (no review, no `heron/review` check); results show in the app only, and the latest one can be posted by hand (§6.5). Iterations have no dry run: **Push** is their gate (§15.2). |
 | `reviewEnabled` | Turn reviews off for one repo (iterations have their own switch, §15.2) |
 | Iteration fields | See §15.2 |
 
@@ -141,7 +141,7 @@ Grouped by feature. **Reviews:** parallel runs (default 2), debounce (default 5s
 - **Debounce:** a new SHA sets `runAfter = now + debounce`. Further pushes during the debounce window reset it.
 - **Supersede:** a new SHA on a PR with a review in progress → abort it (`AbortController`), mark it `superseded`, and owe the new SHA.
 - **Draft → ready** counts as a trigger.
-- **Manual actions:** Review now, Re-run (any PR or SHA).
+- **Manual actions:** Review now, Re-run (any PR or SHA), Post (a dry run's review, §6.5).
 - **Global pause:** from the menu bar or automatically on usage/rate limits (§6.3).
 
 ---
@@ -153,7 +153,9 @@ Grouped by feature. **Reviews:** parallel runs (default 2), debounce (default 5s
 debouncing → queued → preparing → running → validating → posting → posted
                                                           ↘ completed (dry run, or nothing to post)
 any → failed | superseded | cancelled
+completed → posted (a dry run that found something, posted by hand: §6.5)
 ```
+A `completed` run is shown as one of two outcomes: **No issues found** (nothing to raise, dry run or not) or **Dry run · not posted** (a dry run that found something; it is *held back*).
 Each `reviews` row stores: `state, runAfter, attempt, lastError, pid, sessionId, profileSnapshot, resolvedModel, transcriptPath, outputJson, githubReviewId`.
 
 ### 6.2 Steps
@@ -186,6 +188,13 @@ Every step is **idempotent** and saves its output before changing state.
 - **On launch:** reviews in `preparing`/`running`/`validating`/`posting` go back to the start of their current step. **Kill any orphaned `pid`s** first.
 - **On Quit with runs in progress:** confirm ("N reviews running — quit anyway?"), abort them, and mark them interrupted. They resume on the next launch.
 - **On wake from sleep:** poll immediately, then continue as normal.
+
+### 6.5 Posting a dry run
+A held-back dry run (§6.1) keeps its validated review, so it can still go to GitHub: **Post** in the Review tab's run header.
+- **Only the PR's latest run**, only while the PR is open and its head is still the run's `headSha`. When new commits have landed, the header says so instead: re-run to post. GitHub is asked for the PR's state and head before posting, since the local row can lag the poller; a mismatch refuses the post and leaves the run as it is.
+- **Posts the stored review as is** (body and every inline comment), with the same marker check as step 4, so a second click can't post twice.
+- **Success → `posted`**, with the `heron/review` check set to "Review posted" like any posted review. `finishedAt` keeps the time the review finished.
+- **Failure** (network, GitHub refusing the review) leaves the run `completed` and shows the error in the header, so Post can be clicked again; the marker check keeps a retry from posting twice.
 
 ---
 
@@ -312,7 +321,7 @@ oRPC over a `MessagePort` handed to the renderer through the preload script. Zod
 Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`, system font, follows light/dark mode. Tailwind + Radix, styled to look like macOS rather than a web dashboard. Windows keeps the same layout with Windows window chrome (§17.8).
 
 **Main window**
-- **Sidebar:** a flat list sorted by **latest review activity**. Each row: live status dot (queued, running with spinner, posted, failed, not reviewed), an iteration badge (§15.8), title, `repo#n`, author avatar, relative time. At the top: repo filter + search. At the bottom: ⚙ Settings.
+- **Sidebar:** a flat list sorted by **latest review activity**. Each row: live review status, as a dot while there's work to come (not reviewed, waiting, queued, running with spinner, cancelled, superseded) and an icon for an outcome (posted: green speech bubble; no issues found: green check; dry run · not posted: green dashed speech bubble; failed: red cross), an iteration badge (§15.8), title, `repo#n`, author avatar, relative time. At the top: repo filter + search. At the bottom: ⚙ Settings.
 - **Detail header:** title, `owner/repo#n`, author, `head → base`, short SHA. Buttons: Open on GitHub, Review now, Re-run.
 - **Tabs:**
   - **Review:** body (markdown), then inline comments grouped by file, each with nearby diff lines. No badges; it's all user-formatted markdown.

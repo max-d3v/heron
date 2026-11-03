@@ -14,7 +14,7 @@ const TONE: Record<RunSummary["state"], "gray" | "green" | "red" | "orange" | "b
   validating: "blue",
   posting: "blue",
   posted: "green",
-  completed: "teal",
+  completed: "green",
   failed: "red",
   superseded: "gray",
   cancelled: "gray",
@@ -132,7 +132,7 @@ function ReviewRuns({ runs, selectedId, onOpen }: { runs: RunSummary[]; selected
               <td className="px-2 py-1.5">
                 <Badge tone={TONE[r.state]}>{r.state}</Badge>
                 {r.dryRun && <span className="ml-1 text-[10.5px] text-fg-3">dry run</span>}
-                {r.state === "completed" && !r.dryRun && <span className="ml-1 text-[10.5px] text-fg-3">no issues</span>}
+                {r.state === "completed" && <span className="ml-1 text-[10.5px] text-fg-3">{r.heldBack ? "not posted" : "no issues"}</span>}
               </td>
               <td className="px-2 py-1.5 text-fg-2">{TRIGGER[r.trigger]}</td>
               <td className="px-2 py-1.5">{r.profileName ?? "—"}</td>

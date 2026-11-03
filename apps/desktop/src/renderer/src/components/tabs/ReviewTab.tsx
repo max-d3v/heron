@@ -1,5 +1,5 @@
 import type { AgentStepEvent, PrDetail, ReviewDetail, RunSummary } from "@heron/rpc";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Bot,
   ChevronRight,
@@ -11,6 +11,7 @@ import {
   ListChecks,
   MessageSquare,
   Search,
+  Send,
   Sparkles,
   SquareTerminal,
   TriangleAlert,
@@ -23,7 +24,7 @@ import { useNow, useStream } from "../../lib/hooks";
 import { client, errorText, orpc } from "../../lib/rpc";
 import { Markdown } from "../Markdown";
 import { isActiveRun, isInFlightRun } from "../PrDetail";
-import { Badge, Empty, ErrorNote, Spinner } from "../ui";
+import { Badge, Button, Empty, ErrorNote, Spinner } from "../ui";
 
 const STATE_TEXT: Record<string, string> = {
   debouncing: "Waiting for more pushes",
@@ -58,7 +59,7 @@ export function ReviewTab({ pr, run }: { pr: PrDetail; run: RunSummary | null })
       ) : run.state === "debouncing" || run.state === "queued" ? (
         pending ? null : <PendingCard run={run} />
       ) : (
-        <FinishedRun run={run} />
+        <FinishedRun key={run.id} pr={pr} run={run} />
       )}
     </div>
   );
@@ -174,18 +175,32 @@ function LiveRun({ run }: { run: RunSummary }) {
   );
 }
 
-function FinishedRun({ run }: { run: RunSummary }) {
+function FinishedRun({ pr, run }: { pr: PrDetail; run: RunSummary }) {
   const detail = useQuery(orpc.reviews.get.queryOptions({ input: { id: run.id } }));
   const steps = useQuery(orpc.reviews.steps.queryOptions({ input: { id: run.id } }));
+  const post = useMutation(orpc.reviews.post.mutationOptions());
   const [showSteps, setShowSteps] = useState(false);
 
   if (detail.isPending) return <Spinner />;
   if (detail.isError) return <ErrorNote>{errorText(detail.error)}</ErrorNote>;
   const r = detail.data;
+  // Only the latest dry run on an open PR can be posted, and only onto the commit it reviewed.
+  const postable = r.heldBack && pr.runs[0]?.id === r.id && pr.state === "open";
 
   return (
     <div className="flex flex-col gap-4">
-      <RunMeta run={r} />
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <RunMeta run={r} />
+        {postable &&
+          (r.headSha === pr.headSha ? (
+            <Button size="sm" variant="primary" icon={<Send className="size-3" />} busy={post.isPending} onClick={() => post.mutate({ reviewId: r.id })}>
+              Post
+            </Button>
+          ) : (
+            <span className="text-[11.5px] text-fg-2">New commits since this dry run. Re-run to post.</span>
+          ))}
+      </div>
+      {post.error && <ErrorNote>{errorText(post.error)}</ErrorNote>}
 
       {r.state === "failed" && (
         <div className="flex flex-col gap-2">
@@ -231,17 +246,17 @@ function RunMeta({ run }: { run: ReviewDetail }) {
     run.state === "posted"
       ? "Posted"
       : run.state === "completed"
-        ? run.dryRun
-          ? "Completed"
+        ? run.heldBack
+          ? "Not posted"
           : "No issues"
         : run.state === "failed"
           ? "Failed"
           : run.state === "cancelled"
             ? "Cancelled"
             : "Superseded";
-  const tone = run.state === "posted" ? "green" : run.state === "completed" ? "teal" : run.state === "failed" ? "red" : "gray";
+  const tone = run.state === "posted" || run.state === "completed" ? "green" : run.state === "failed" ? "red" : "gray";
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-fg-2">
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-fg-2">
       <Badge tone={tone}>{label}</Badge>
       {run.dryRun && <Badge tone="teal">Dry run</Badge>}
       <span>{ago(run.finishedAt ?? run.createdAt, now)}</span>
