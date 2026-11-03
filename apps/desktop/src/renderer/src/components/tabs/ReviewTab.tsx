@@ -59,7 +59,7 @@ export function ReviewTab({ pr, run }: { pr: PrDetail; run: RunSummary | null })
       ) : run.state === "debouncing" || run.state === "queued" ? (
         pending ? null : <PendingCard run={run} />
       ) : (
-        <FinishedRun pr={pr} run={run} />
+        <FinishedRun key={run.id} pr={pr} run={run} />
       )}
     </div>
   );
