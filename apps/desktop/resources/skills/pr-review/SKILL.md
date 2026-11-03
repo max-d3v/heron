@@ -30,6 +30,7 @@ Bad practices in code the change adds or modifies; pre-existing code is out of s
   - Assertions: `as X`, `as unknown as X`, non-null `!`, `any`.
   - Especially `Pick<>` types: ad-hoc slices of a domain type in signatures, like `Pick<Review, "id" | "prId">`. Take the whole type, or just the field when that's all the function reads (`scope: RepoScope`, not `Pick<Repo, "scope">`).
   - Indexed access types like `Type["x"]["y"]`: they couple the code to another type's internal shape. Use the named type (`RepoScope`, not `Repo["scope"]`), or export one if it doesn't exist.
+  - Hand-rolled checkers for the shape of unknown data: `isRecord(x)` helpers, `(x: unknown): x is Foo` guards, chains of `typeof` and `in` checks on parsed JSON, IPC messages or API responses. TypeScript trusts a type predicate without checking it, so it is an assertion in disguise, and it drifts silently when `Foo` gains a field. Use a schema from the repo's validation library (zod, valibot, …) and take the type from it (`z.infer<typeof FooSchema>`). If the repo has none, flag it only when the checker tests more than a field or two.
 - Functions that do more than one thing.
 - try/catch blocks that wrap large sections or swallow errors.
 - Deep nesting.
