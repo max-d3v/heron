@@ -9,6 +9,8 @@ import {
   GitCommitHorizontal,
   GitPullRequest,
   ListChecks,
+  MessageCircleDashed,
+  MessageCircleMore,
   MessageSquareText,
   Pause,
   Play,
@@ -43,14 +45,18 @@ function icon(a: ActivityDto) {
     case "review.error":
       return <TriangleAlert className={cn(cls, "text-bad")} />;
     case "review.posted":
-      return <CircleCheck className={cn(cls, "text-ok")} />;
+      return <MessageCircleMore className={cn(cls, "text-ok")} />;
     case "queue.paused":
       return <Pause className={cls} />;
     case "queue.resumed":
       return <Play className={cls} />;
     case "review.state": {
       const to = a.data?.to;
-      if (to === "posted" || to === "completed") return <CircleCheck className={cn(cls, "text-ok")} />;
+      if (to === "posted") return <MessageCircleMore className={cn(cls, "text-ok")} />;
+      if (to === "completed") {
+        const Icon = a.data?.heldBack ? MessageCircleDashed : CircleCheck;
+        return <Icon className={cn(cls, "text-ok")} />;
+      }
       if (to === "failed") return <CircleX className={cn(cls, "text-bad")} />;
       if (to === "cancelled" || to === "superseded") return <Ban className={cls} />;
       return <CircleDot className={cn(cls, "text-accent")} />;

@@ -1,5 +1,6 @@
 import {
   feedbackCounts,
+  isHeldBack,
   isInScope,
   isIterationActive,
   reviewsAutomatically,
@@ -32,7 +33,7 @@ import { groupFeedback } from "./feedback.ts";
 
 const CLOSED_PR_WINDOW_MS = 14 * 24 * 3600_000;
 
-export function statusOf(state: ReviewState | null): PrStatus {
+export function statusOf(state: ReviewState | null, heldBack = false): PrStatus {
   switch (state) {
     case null:
       return "not_reviewed";
@@ -41,6 +42,8 @@ export function statusOf(state: ReviewState | null): PrStatus {
     case "validating":
     case "posting":
       return "running";
+    case "completed":
+      return heldBack ? "not_posted" : "no_issues";
     default:
       return state;
   }
@@ -93,7 +96,7 @@ export function toPrListItem(
     reviewsOn: repo.reviewsOn,
     autoReview: repo.autoReview,
     repoEnabled: row.repoEnabled,
-    status: statusOf(latestReview?.state ?? null),
+    status: statusOf(latestReview?.state ?? null, latestReview?.heldBack),
     headUnreviewed: latestReview !== null && isTerminal(latestReview.state) && latestReview.headSha !== pr.headSha,
     latestReviewId: latestReview?.id ?? null,
     latestError: latestReview?.state === "failed" ? latestReview.lastError : null,
@@ -136,6 +139,7 @@ export function toRunSummary(r: Review): RunSummary {
     model: r.resolvedModel ?? snap?.model ?? null,
     effort: snap?.effort ?? null,
     dryRun: snap?.dryRun ?? false,
+    heldBack: isHeldBack(r),
     attempt: r.attempt,
     runAfter: r.runAfter,
     lastError: r.lastError,

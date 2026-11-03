@@ -403,6 +403,7 @@ export function createRouter(s: Services) {
       }),
       reviewNow: os.reviews.reviewNow.handler(({ input }) => toRunSummary(s.scheduler.reviewNow(input.prId))),
       rerun: os.reviews.rerun.handler(({ input }) => toRunSummary(s.scheduler.rerun(input.reviewId))),
+      post: os.reviews.post.handler(async ({ input }) => toRunSummary(await s.scheduler.post(input.reviewId))),
       cancel: os.reviews.cancel.handler(({ input }) => s.scheduler.cancel(input.reviewId)),
       transcript: os.reviews.transcript.handler(async ({ input }) => {
         const r = db.getReview(input.id);

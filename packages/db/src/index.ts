@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import {
   DEFAULT_SETTINGS,
+  isHeldBack,
   type Activity,
   type ActivityKind,
   type CwdKind,
@@ -363,7 +364,7 @@ export interface PrListRow {
   owner: string;
   repoName: string;
   repoEnabled: boolean;
-  latestReview: Pick<Review, "id" | "state" | "headSha" | "updatedAt" | "lastError"> | null;
+  latestReview: (Pick<Review, "id" | "state" | "headSha" | "updatedAt" | "lastError"> & { heldBack: boolean }) | null;
   reviewCount: number;
 }
 
@@ -573,6 +574,7 @@ export class HeronDb {
         `SELECT p.*, r.owner AS r_owner, r.name AS r_name, (r.review_enabled OR r.iteration_enabled) AS r_enabled,
                 lr.id AS lr_id, lr.state AS lr_state, lr.head_sha AS lr_head_sha,
                 lr.updated_at AS lr_updated_at, lr.last_error AS lr_last_error,
+                CASE WHEN lr.state = 'completed' THEN lr.payload_json END AS lr_payload,
                 (SELECT COUNT(*) FROM reviews x WHERE x.pr_id = p.id) AS review_count
          FROM prs p
          JOIN repos r ON r.id = p.repo_id
@@ -594,6 +596,8 @@ export class HeronDb {
               headSha: String(r.lr_head_sha),
               updatedAt: Number(r.lr_updated_at),
               lastError: str(r.lr_last_error),
+              // Only a `completed` row brings its payload: that's the one state it decides.
+              heldBack: isHeldBack({ state: r.lr_state as ReviewState, payload: json<ReviewPayload>(r.lr_payload) }),
             },
       reviewCount: Number(r.review_count),
     }));

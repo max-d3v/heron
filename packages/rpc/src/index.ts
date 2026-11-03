@@ -25,14 +25,18 @@ const reviewState = z.enum(REVIEW_STATES);
 const effort = z.enum(EFFORT_LEVELS);
 const side = z.enum(["LEFT", "RIGHT"]);
 
-/** What the sidebar dot shows: the latest run's state folded into a few buckets. */
+/**
+ * What the sidebar dot shows: the latest run's state folded into a few buckets. `completed`
+ * splits in two: `no_issues` found nothing to raise, `not_posted` is a dry run that did.
+ */
 export const PR_STATUSES = [
   "not_reviewed",
   "debouncing",
   "queued",
   "running",
   "posted",
-  "completed",
+  "no_issues",
+  "not_posted",
   "failed",
   "cancelled",
   "superseded",
@@ -84,6 +88,8 @@ export const runSummary = z.object({
   model: z.string().nullable(),
   effort: effort.nullable(),
   dryRun: z.boolean(),
+  /** A dry run that found something and didn't post it (`isHeldBack`); the latest one can be posted by hand. */
+  heldBack: z.boolean(),
   attempt: z.number(),
   runAfter: z.number().nullable(),
   lastError: z.string().nullable(),
@@ -491,6 +497,8 @@ export const contract = {
     get: oc.input(byId).output(reviewDetail),
     reviewNow: oc.input(z.object({ prId: id })).output(runSummary),
     rerun: oc.input(z.object({ reviewId: id })).output(runSummary),
+    /** Post a dry run's held-back review: the latest run, while its commit is the open PR's head. */
+    post: oc.input(z.object({ reviewId: id })).output(runSummary),
     cancel: oc.input(z.object({ reviewId: id })),
     transcript: oc.input(byId).output(z.object({ entries: z.array(transcriptEntry), truncated: z.boolean() })),
     steps: oc.input(byId).output(z.array(agentStepEvent)),

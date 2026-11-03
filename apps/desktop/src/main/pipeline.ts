@@ -5,7 +5,9 @@ import {
   AuthError,
   OutputParseError,
   PermanentError,
+  errorMessage,
   isEmptyPayload,
+  isHeldBack,
   isInFlight,
   nextStep,
   parseDiff,
@@ -15,6 +17,7 @@ import {
   type ProfileSnapshot,
   type Repo,
   type Review,
+  type ReviewPayload,
 } from "@heron/core";
 import type { HeronDb, ReviewPatch } from "@heron/db";
 import type { GitClient } from "@heron/git";
@@ -63,6 +66,9 @@ interface HeronMeta {
  * or quit resumes at the start of the step that was in progress.
  */
 export class Pipeline {
+  /** Held-back reviews being posted by hand, so a second click can't post twice. */
+  private readonly posting = new Set<number>();
+
   constructor(private readonly d: PipelineDeps) {}
 
   async execute(reviewId: number, signal: AbortSignal): Promise<Review | null> {
@@ -104,10 +110,11 @@ export class Pipeline {
       }
       const to = nextStep(review.state, posts(review));
       const done = to === "posted" || to === "completed";
+      const heldBack = isHeldBack({ state: to, payload: review.payload });
       review = this.d.store.transition(review, to, {
         patch: { ...patch, ...(done ? { finishedAt: Date.now() } : {}) },
-        message: to === "completed" && !review.profileSnapshot!.dryRun ? "No issues found, nothing posted" : undefined,
-        data: to === "posted" ? { url: patch.githubReviewUrl ?? null } : undefined,
+        message: to === "completed" ? (heldBack ? "Dry run, not posted" : "No issues found, nothing posted") : undefined,
+        data: to === "posted" ? { url: patch.githubReviewUrl ?? null } : to === "completed" ? { heldBack } : undefined,
       });
     }
     return review;
@@ -325,11 +332,15 @@ export class Pipeline {
   private async post(review: Review, pr: Pr, repo: Repo): Promise<ReviewPatch> {
     if (!posts(review)) return {};
     if (!review.payload) throw new PermanentError("Nothing to post (validation output missing)");
+    return this.publish(review, review.payload, pr, repo);
+  }
+
+  private async publish(review: Review, payload: ReviewPayload, pr: Pr, repo: Repo): Promise<ReviewPatch> {
     const { github } = this.d;
     // Idempotent: a crash after POST but before saving must not post twice.
     const existing = await github.findMarkerReview(repo.owner, repo.name, pr.number, review.headSha, review.id);
     if (existing) return { githubReviewId: existing.id, githubReviewUrl: existing.url };
-    const posted = await github.postReview(repo.owner, repo.name, pr.number, review.headSha, review.id, review.payload);
+    const posted = await github.postReview(repo.owner, repo.name, pr.number, review.headSha, review.id, payload);
     if (posted.folded) {
       this.d.store.activity({
         prId: review.prId,
@@ -340,7 +351,51 @@ export class Pipeline {
     }
     return { githubReviewId: posted.id, githubReviewUrl: posted.url };
   }
+
+  // ── posting a dry run by hand ─────────────────────────────────────────────
+
+  /**
+   * Post a dry run's held-back review (§6.5): only the PR's latest run, and only while its
+   * commit is the open PR's head. It moves to `posted`, or to `failed` if the post fails.
+   * Throws, leaving the run as it is, when it isn't one that can be posted.
+   */
+  async postHeld(reviewId: number): Promise<Review> {
+    const review = this.d.db.getReview(reviewId);
+    if (!review) throw new Error("Review not found");
+    if (!isHeldBack(review)) throw new Error("Only a dry run that found something can be posted");
+    const { pr, repo } = this.context(review);
+    if (this.d.db.listReviewsForPr(pr.id)[0]?.id !== review.id) throw new Error("Only the latest run can be posted");
+    if (pr.state !== "open") throw new Error(`PR is ${pr.state}`);
+    if (pr.headSha !== review.headSha) throw new Error(NEW_COMMITS);
+    if (this.posting.has(review.id)) throw new Error("Already posting");
+
+    this.posting.add(review.id);
+    let blocked: string | null;
+    let patch: ReviewPatch = {};
+    try {
+      // The PR row can lag the poller, so ask GitHub too before posting onto an old commit.
+      const detail = await this.d.github.getPull(repo.owner, repo.name, pr.number);
+      blocked = detail.state !== "open" ? `PR is ${detail.state}` : detail.headSha !== review.headSha ? NEW_COMMITS : null;
+      if (!blocked) patch = await this.publish(review, review.payload!, pr, repo);
+    } catch (err) {
+      const message = `Couldn't post: ${errorMessage(err)}`;
+      const failed = this.d.store.transition(review, "failed", { patch: { lastError: message }, message: `Failed: ${message}` });
+      if (failed) this.d.store.activity({ prId: review.prId, reviewId: review.id, kind: "review.error", message, data: { step: "posting" } });
+      return failed ?? this.d.db.getReview(review.id) ?? review;
+    } finally {
+      this.posting.delete(review.id);
+    }
+    if (blocked) throw new Error(blocked);
+    const posted = this.d.store.transition(review, "posted", {
+      patch,
+      message: "Dry run posted to GitHub",
+      data: { url: patch.githubReviewUrl ?? null },
+    });
+    return posted ?? this.d.db.getReview(review.id) ?? review;
+  }
 }
+
+const NEW_COMMITS = "New commits since this dry run. Re-run to post.";
 
 /** Dry runs, and reviews that found nothing to raise, finish as `completed` without posting. */
 function posts(review: Review): boolean {

@@ -14,7 +14,7 @@ export interface CommitStatusDeps {
  * Mirrors each review onto its head commit as the `heron/review` status, so it shows in
  * the PR's checks box: pending while it runs, success once posted (linking the review) or
  * when it found nothing to post, error if it fails or is cancelled. Dry runs post nothing
- * to GitHub, so they set nothing.
+ * to GitHub, so they set nothing, until one is posted by hand.
  */
 export class CommitStatusReporter {
   // One at a time, so a slow "pending" can't land after the "success" that follows it.
@@ -38,7 +38,7 @@ export class CommitStatusReporter {
     const repo = pr ? this.d.db.getRepo(pr.repoId) : null;
     if (!review || !pr || !repo) return;
     // The snapshot is taken just after the first step starts, from this same repo setting.
-    if (review.profileSnapshot?.dryRun ?? repo.dryRun) return;
+    if ((review.profileSnapshot?.dryRun ?? repo.dryRun) && to !== "posted") return;
 
     const status = statusFor(review, pr, from, to);
     if (!status) return;

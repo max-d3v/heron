@@ -9,6 +9,7 @@ import {
   isActive,
   isDraftAllowed,
   isEligible,
+  isHeldBack,
   isInFlight,
   isTerminal,
   retryDelay,
@@ -340,6 +341,17 @@ export class Scheduler {
     return review;
   }
 
+  /** Post a dry run's held-back review (§6.5). */
+  async post(reviewId: number): Promise<Review> {
+    try {
+      return await this.d.pipeline.postHeld(reviewId);
+    } catch (err) {
+      // Refused, often because GitHub saw a push or a close the poller hasn't caught up with yet.
+      this.d.requestPoll();
+      throw err;
+    }
+  }
+
   cancel(reviewId: number): void {
     const r = this.d.db.getReview(reviewId);
     if (!r || !isActive(r.state)) return;
@@ -419,7 +431,7 @@ export class Scheduler {
       this.d.notify({ title: "Review posted", body: `#${pr.number} ${pr.title}`, prId: pr.id });
     }
     if (review.state === "completed" && s.notifyPosted) {
-      const title = review.profileSnapshot?.dryRun ? "Review ready (dry run)" : "No issues found";
+      const title = isHeldBack(review) ? "Review ready (dry run)" : "No issues found";
       this.d.notify({ title, body: `#${pr.number} ${pr.title}`, prId: pr.id });
     }
   }
