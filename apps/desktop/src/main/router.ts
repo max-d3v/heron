@@ -469,6 +469,14 @@ export function createRouter(s: Services) {
         if (!(await claudeSessionSaved(it.sessionId, s.env()))) {
           throw new ORPCError("NOT_FOUND", { message: "Claude Code didn't save this run's session. Only iterations from this version of Heron on save theirs." });
         }
+        // Closing the PR or clearing the worktree cache removes the folder the session ran in, even if the PR is open again.
+        if (it.cwdKind === "worktree") {
+          const pr = requirePr(it.prId);
+          const repo = requireRepo(pr.repoId);
+          if (!existsSync(s.paths.iterationWorktreeDir(repo.owner, repo.name, pr.number, it.id))) {
+            throw new ORPCError("NOT_FOUND", { message: "This iteration's worktree was removed, so its session has no folder to continue in." });
+          }
+        }
         try {
           await s.openExternal(`claude://resume?session=${encodeURIComponent(it.sessionId)}`);
         } catch {

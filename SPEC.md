@@ -463,7 +463,7 @@ A batch that's triaged while another one waits (`held` or `awaiting_start`) is m
 - **Iteration tab** (PR detail):
   - **Feedback**, while a batch is open: each comment with author, location, verdict and reason. With manual start (or after the loop cap), an **Iterate** button, disabled while a result is `ready`.
   - **Latest iteration** that ran the agent: live steps while running. Then the commit title, addressed and not-addressed items with their notes, a unified diff (collapsible files, no syntax highlighting), the commit link, **Push** / **Discard** / **Uncommit** (when `ready`; Uncommit in local checkout mode only) and **Re-run**.
-  - **Open in Claude**, once the agent ran: opens `claude://resume?session=<sessionId>`, which imports the agent's saved session into the Claude app's Code tab, to continue in the folder it ran in. Hidden for a worktree iteration once the PR closes (its worktree is gone).
+  - **Open in Claude**, once the agent ran: opens `claude://resume?session=<sessionId>`, which imports the agent's saved session into the Claude app's Code tab, to continue in the folder it ran in. Hidden for a worktree iteration once the PR closes (its worktree is gone); if the worktree was removed anyway (cleared cache, a reopened PR), the RPC errors instead of opening.
   - On other people's PRs: an empty state, "Iterations only run on PRs you opened".
 - **Runs:** separate Reviews and Iterations sections. An iteration row shows state, model, triage result ("4 of 6 to change"), addressed count, duration and commit. Clicking opens it in the Iteration tab. `skipped` batches appear here, never as the latest iteration.
 - **Transcript:** unchanged. For an iteration, the triage call(s) then the agent's turns.
