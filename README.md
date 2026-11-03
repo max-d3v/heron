@@ -1,6 +1,6 @@
 # Heron
 
-Run automatic code reviews on your GitHub pull requests using your Claude Code subscription. A highly configurable app for macOS and Windows, now with [iterations](#iterations-review-fix-repeat): Heron reviews, Claude fixes, repeat.
+Run automatic code reviews on your GitHub pull requests using your Claude Code subscription. A highly configurable app for macOS and Windows, now with [iterations](#iterations-review-fix-repeat): Claude reviews, fixes and repeats.
 
 <!-- TODO: demo video. Drag the .mp4 into this file on github.com to get an embed link, then paste it here. -->
 
@@ -81,11 +81,11 @@ Heron gives every review the PR details, the diff and earlier comments (in a `.h
 
 ## Iterations: review, fix, repeat
 
-**Heron can fix your pull requests, not just review them.** Turn on reviews and iterations for the same repo and they feed each other: Heron reviews your push, Claude fixes what the review found, Heron pushes the fix, and that push gets reviewed again.
+**Claude can fix your pull requests, not just review them.** Turn on reviews and iterations for the same repo and they feed each other: Claude reviews your push, fixes what it found, and Heron pushes the fix so Claude reviews it again.
 
 ```mermaid
 flowchart LR
-  push([You push]) --> review[Heron reviews]
+  push([You push]) --> review[Claude reviews]
   review -->|comments| fix[Claude fixes them]
   fix -->|Heron pushes| review
   review -->|nothing left to fix| done([Ready for a human])
@@ -95,19 +95,19 @@ Each lap checks the last fix, so the PR gets cleaner until the review has nothin
 
 ### Turning it on
 
-Iterations are **off** for every repo. Turn them on in Settings → **Repos** → **Iteration**. With the defaults, Heron only sorts the comments: you click **Iterate** to start Claude and **Push** to send its commit, after reading the diff in the app. Set **Automatic iteration** to **Automatic** and turn on **Push automatically** to let the loop run with no clicks.
+Iterations are **off** for every repo. Turn them on in Settings → **Repos** → **Iteration**. With the defaults, Claude only sorts the comments: you click **Iterate** to have it fix them and **Push** to send its commit, after reading the diff in the app. Set **Automatic iteration** to **Automatic** and turn on **Push automatically** to let the loop run with no clicks.
 
 ### One lap
 
 1. 30 seconds after the newest comment, a quick Haiku call sets aside the ones that don't ask for a change (questions, praise, things already done).
 2. Claude gets the rest in one prompt on a fresh checkout of the PR, fixes the valid ones and notes why it left any alone.
-3. Heron commits as you, with a [Conventional Commits](https://www.conventionalcommits.org) title. Once pushed, it replies on each thread with `Addressed in abc1234 — <note>` and resolves it, or `Not addressed — <reason>` and leaves it open. A reply on a handled thread sends it through again.
+3. Claude's changes are committed as you, under the [Conventional Commits](https://www.conventionalcommits.org) title it wrote. Once pushed, each thread gets Claude's note: `Addressed in abc1234 — <note>` and resolved, or `Not addressed — <reason>` and left open. A reply on a handled thread sends it through again.
 
 ### Settings
 
 Per repo, in Settings → **Repos** → **Iteration**:
 
-- **Comments to iterate on**: **All comments**, or **My comments** (yours, which includes Heron's reviews).
+- **Comments to iterate on**: **All comments**, or **My comments** (yours, which includes Claude's reviews, since they post as you).
 - **Profile**: model, effort, timeout and max turns. Default is Opus at high effort.
 - **Replies**: on by default. Turn off to keep Claude's notes in the app.
 - **Setup command**: e.g. `pnpm install`, so Claude can run tests and type checks.
