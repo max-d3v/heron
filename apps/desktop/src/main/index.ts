@@ -245,6 +245,7 @@ async function main(): Promise<void> {
       skills,
       paths,
       version,
+      env: () => env,
       claudePath: () => bins.claude,
       setupShell: () => setupShell(env, bins.git),
       viewerLogin: () => viewerLogin,

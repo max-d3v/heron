@@ -18,8 +18,11 @@ export function makePaths(root: string) {
     transcript: (reviewId: number) => join(root, "transcripts", `${reviewId}.jsonl`),
     /** Copy of the diff a run reviewed, kept for validation and the UI after the worktree moves on. */
     runDiff: (reviewId: number) => join(root, "transcripts", `${reviewId}.diff`),
-    /** Iterations get their own worktree per PR, apart from the review one. */
-    iterationWorktreeDir: (owner: string, name: string, number: number) => join(root, "worktrees", "iterations", owner, name, String(number)),
+    /** A PR's iteration worktrees, removed together when it closes. Heron used to keep one shared worktree here. */
+    prIterationWorktreesDir: (owner: string, name: string, number: number) => join(root, "worktrees", "iterations", owner, name, String(number)),
+    /** Each iteration gets its own worktree, apart from the review one, so a later run never resets it. */
+    iterationWorktreeDir: (owner: string, name: string, number: number, iterationId: number) =>
+      join(root, "worktrees", "iterations", owner, name, String(number), String(iterationId)),
     /** An iteration's context files (pr.json, pr.diff, pr-comments.json, feedback.json), outside the checkout. */
     iterationDir: (iterationId: number) => join(root, "iterations", String(iterationId)),
     iterationTranscript: (iterationId: number) => join(root, "transcripts", `iteration-${iterationId}.jsonl`),

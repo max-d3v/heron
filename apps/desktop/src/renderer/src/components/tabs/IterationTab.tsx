@@ -319,6 +319,7 @@ function FinishedIteration({ pr, summary, on }: { pr: PrDetail; summary: Iterati
   const uncommit = useMutation(orpc.iterations.uncommit.mutationOptions());
   const rerun = useMutation(orpc.iterations.rerun.mutationOptions());
   const rerunInWorktree = useMutation(orpc.iterations.rerun.mutationOptions());
+  const openInClaude = useMutation(orpc.iterations.openInClaude.mutationOptions());
   const [showSteps, setShowSteps] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
@@ -327,13 +328,28 @@ function FinishedIteration({ pr, summary, on }: { pr: PrDetail; summary: Iterati
   const it = detail.data;
   const busy = pr.iterations.some((i) => i.id !== it.id && (isInFlightIteration(i) || i.state === "queued"));
   const canRerun = pr.state === "open" && it.state !== "stale" && it.state !== "skipped" && !busy;
-  const error = push.error ?? discard.error ?? uncommit.error ?? rerun.error ?? rerunInWorktree.error;
+  const error = push.error ?? discard.error ?? uncommit.error ?? rerun.error ?? rerunInWorktree.error ?? openInClaude.error;
+  // A worktree iteration's folder goes when the PR closes, and the session can't continue without it.
+  const canOpen = it.sessionId !== null && (it.cwdKind === "local" || pr.state === "open");
 
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <IterationMeta it={it} />
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {canOpen && (
+            <ButtonTip
+              content={
+                it.cwdKind === "local"
+                  ? "Continue the agent's session in the Claude app, in your local checkout"
+                  : "Continue the agent's session in the Claude app, in this iteration's worktree (kept until the PR closes)"
+              }
+            >
+              <Button size="sm" icon={<ExternalLink className="size-3" />} busy={openInClaude.isPending} onClick={() => openInClaude.mutate({ id: it.id })}>
+                Open in Claude
+              </Button>
+            </ButtonTip>
+          )}
           {canRerun && (
             <ButtonTip content={on ? null : "Iterations are off for this repo"}>
               <Button size="sm" icon={<RotateCw className="size-3" />} disabled={!on} busy={rerun.isPending} onClick={() => rerun.mutate({ id: it.id })}>

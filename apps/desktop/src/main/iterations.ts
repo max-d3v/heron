@@ -245,7 +245,7 @@ export class IterationScheduler {
       if (change.type === "PrClosed") {
         for (const it of db.listIterationsForPr(pr.id)) if (isIterationActive(it.state)) this.stop(it, `PR ${pr.state}`);
         void this.d.git
-          .removeWorktree(this.d.paths.cloneDir(repo.owner, repo.name), this.d.paths.iterationWorktreeDir(repo.owner, repo.name, pr.number))
+          .removeWorktree(this.d.paths.cloneDir(repo.owner, repo.name), this.d.paths.prIterationWorktreesDir(repo.owner, repo.name, pr.number))
           .catch(() => undefined);
       } else if (change.headChanged) {
         this.onHeadChanged(pr);

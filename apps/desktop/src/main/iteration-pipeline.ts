@@ -202,9 +202,9 @@ export class IterationPipeline {
     };
   }
 
-  /** The snapshot's local checkout when it has one (`prepare` then sets `cwdKind` to `local`), else Heron's worktree. */
-  private cwd(snap: IterationSnapshot, pr: Pr, repo: Repo): string {
-    return snap.localCheckoutPath ?? this.d.paths.iterationWorktreeDir(repo.owner, repo.name, pr.number);
+  /** The snapshot's local checkout when it has one (`prepare` then sets `cwdKind` to `local`), else the iteration's worktree. */
+  private cwd(it: Iteration, snap: IterationSnapshot, pr: Pr, repo: Repo): string {
+    return snap.localCheckoutPath ?? this.d.paths.iterationWorktreeDir(repo.owner, repo.name, pr.number, it.id);
   }
 
   // ── preparing ─────────────────────────────────────────────────────────────
@@ -234,8 +234,12 @@ export class IterationPipeline {
       await this.checkLocalCheckout(snap.localCheckoutPath, detail.headRef, headSha);
       cwdKind = "local";
     } else {
-      const worktree = paths.iterationWorktreeDir(owner, name, pr.number);
-      // Checked out at the head and cleaned (`clean -ffdx`), so the setup command runs in full every time.
+      // The PR's shared worktree from before each iteration had its own: the new ones go inside its folder.
+      const shared = paths.prIterationWorktreesDir(owner, name, pr.number);
+      if (existsSync(join(shared, ".git"))) await git.removeWorktree(clone, shared);
+      // Kept until the PR closes, so the agent's session can be continued there ("Open in Claude").
+      // A retry resets it to the head and cleans it (`clean -ffdx`), so the setup command runs in full every time.
+      const worktree = paths.iterationWorktreeDir(owner, name, pr.number, it.id);
       await git.checkoutWorktree(clone, worktree, headSha);
       cwdKind = "worktree";
       if (snap.setupCommand) {
@@ -391,7 +395,7 @@ export class IterationPipeline {
     try {
       const result = await runIteration({
         claudePath,
-        cwd: this.cwd(snap, pr, repo),
+        cwd: this.cwd(it, snap, pr, repo),
         baseEnv: this.d.env(),
         ghConfigDir: paths.ghConfig,
         pluginDir: paths.plugin,
@@ -426,7 +430,7 @@ export class IterationPipeline {
     const { git, paths } = this.d;
     const output = it.output;
     if (!output || !it.headSha) throw new PermanentError("Nothing to commit (the agent's output is missing)");
-    const cwd = this.cwd(snap, pr, repo);
+    const cwd = this.cwd(it, snap, pr, repo);
     const trailer = iterationTrailer(it.id);
 
     // A commit made before a crash is found again by its trailer.

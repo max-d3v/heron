@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { ORPCError, implement } from "@orpc/server";
@@ -8,7 +8,7 @@ import type { HeronDb } from "@heron/db";
 import type { GitClient } from "@heron/git";
 import type { GitHubClient, PrFile } from "@heron/github";
 import { ITERATION_CONTRACT_SUMMARY, OUTPUT_CONTRACT_SUMMARY } from "@heron/harness";
-import { diskUsage, type SetupShell } from "@heron/platform";
+import { diskUsage, envKey, type SetupShell } from "@heron/platform";
 import { contract, type AgentStepEvent, type DoctorReport, type ModelOption, type SkillDto, type TranscriptEntry } from "@heron/rpc";
 import type { Bus } from "./bus.ts";
 import { isCheckoutOf } from "./checkouts.ts";
@@ -32,6 +32,8 @@ export interface Services {
   skills: SkillService;
   paths: Paths;
   version: string;
+  /** The environment the agent runs with. */
+  env: () => NodeJS.ProcessEnv;
   claudePath: () => string | null;
   setupShell: () => SetupShell;
   viewerLogin: () => string | null;
@@ -47,6 +49,13 @@ export interface Services {
 function isInside(root: string, p: string): boolean {
   const rel = relative(root, p);
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+/** Claude Code saved the session: `<config dir>/projects/<project>/<id>.jsonl`, the config dir being `CLAUDE_CONFIG_DIR` in the agent's env or `~/.claude`. */
+async function claudeSessionSaved(sessionId: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  const projects = join(env[envKey(env, "CLAUDE_CONFIG_DIR")] || join(homedir(), ".claude"), "projects");
+  const dirs = await readdir(projects).catch(() => []);
+  return dirs.some((dir) => existsSync(join(projects, dir, `${sessionId}.jsonl`)));
 }
 
 /** Errors thrown by services carry a message meant for the user; don't let oRPC mask it. */
@@ -454,6 +463,26 @@ export function createRouter(s: Services) {
       discard: os.iterations.discard.handler(({ input }) => s.iterations.discard(input.id)),
       uncommit: os.iterations.uncommit.handler(({ input }) => s.iterations.uncommit(input.id)),
       rerun: os.iterations.rerun.handler(({ input }) => toIterationSummary(s.iterations.rerun(input.id, { worktree: input.worktree }))),
+      openInClaude: os.iterations.openInClaude.handler(async ({ input }) => {
+        const it = requireIteration(input.id);
+        if (!it.sessionId) throw new ORPCError("BAD_REQUEST", { message: "This iteration never started the agent" });
+        if (!(await claudeSessionSaved(it.sessionId, s.env()))) {
+          throw new ORPCError("NOT_FOUND", { message: "Claude Code didn't save this run's session. Only iterations from this version of Heron on save theirs." });
+        }
+        // Closing the PR or clearing the worktree cache removes the folder the session ran in, even if the PR is open again.
+        if (it.cwdKind === "worktree") {
+          const pr = requirePr(it.prId);
+          const repo = requireRepo(pr.repoId);
+          if (!existsSync(s.paths.iterationWorktreeDir(repo.owner, repo.name, pr.number, it.id))) {
+            throw new ORPCError("NOT_FOUND", { message: "This iteration's worktree was removed, so its session has no folder to continue in." });
+          }
+        }
+        try {
+          await s.openExternal(`claude://resume?session=${encodeURIComponent(it.sessionId)}`);
+        } catch {
+          throw new ORPCError("BAD_REQUEST", { message: "Couldn't open the Claude app. Is it installed?" });
+        }
+      }),
       cancel: os.iterations.cancel.handler(({ input }) => s.iterations.cancel(input.id)),
       diff: os.iterations.diff.handler(async ({ input }) => {
         requireIteration(input.id);
