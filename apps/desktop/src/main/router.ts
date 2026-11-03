@@ -8,7 +8,7 @@ import type { HeronDb } from "@heron/db";
 import type { GitClient } from "@heron/git";
 import type { GitHubClient, PrFile } from "@heron/github";
 import { ITERATION_CONTRACT_SUMMARY, OUTPUT_CONTRACT_SUMMARY } from "@heron/harness";
-import { diskUsage, type SetupShell } from "@heron/platform";
+import { diskUsage, envKey, type SetupShell } from "@heron/platform";
 import { contract, type AgentStepEvent, type DoctorReport, type ModelOption, type SkillDto, type TranscriptEntry } from "@heron/rpc";
 import type { Bus } from "./bus.ts";
 import { isCheckoutOf } from "./checkouts.ts";
@@ -32,6 +32,8 @@ export interface Services {
   skills: SkillService;
   paths: Paths;
   version: string;
+  /** The environment the agent runs with. */
+  env: () => NodeJS.ProcessEnv;
   claudePath: () => string | null;
   setupShell: () => SetupShell;
   viewerLogin: () => string | null;
@@ -49,9 +51,9 @@ function isInside(root: string, p: string): boolean {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-/** Claude Code saved the session: `~/.claude/projects/<project>/<id>.jsonl`. */
-async function claudeSessionSaved(sessionId: string): Promise<boolean> {
-  const projects = join(homedir(), ".claude", "projects");
+/** Claude Code saved the session: `<config dir>/projects/<project>/<id>.jsonl`, the config dir being `CLAUDE_CONFIG_DIR` in the agent's env or `~/.claude`. */
+async function claudeSessionSaved(sessionId: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  const projects = join(env[envKey(env, "CLAUDE_CONFIG_DIR")] || join(homedir(), ".claude"), "projects");
   const dirs = await readdir(projects).catch(() => []);
   return dirs.some((dir) => existsSync(join(projects, dir, `${sessionId}.jsonl`)));
 }
@@ -464,7 +466,7 @@ export function createRouter(s: Services) {
       openInClaude: os.iterations.openInClaude.handler(async ({ input }) => {
         const it = requireIteration(input.id);
         if (!it.sessionId) throw new ORPCError("BAD_REQUEST", { message: "This iteration never started the agent" });
-        if (!(await claudeSessionSaved(it.sessionId))) {
+        if (!(await claudeSessionSaved(it.sessionId, s.env()))) {
           throw new ORPCError("NOT_FOUND", { message: "Claude Code didn't save this run's session. Only iterations from this version of Heron on save theirs." });
         }
         try {
