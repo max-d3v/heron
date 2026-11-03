@@ -153,7 +153,7 @@ Grouped by feature. **Reviews:** parallel runs (default 2), debounce (default 5s
 debouncing → queued → preparing → running → validating → posting → posted
                                                           ↘ completed (dry run, or nothing to post)
 any → failed | superseded | cancelled
-completed → posted | failed (a dry run that found something, posted by hand: §6.5)
+completed → posted (a dry run that found something, posted by hand: §6.5)
 ```
 A `completed` run is shown as one of two outcomes: **No issues found** (nothing to raise, dry run or not) or **Dry run · not posted** (a dry run that found something; it is *held back*).
 Each `reviews` row stores: `state, runAfter, attempt, lastError, pid, sessionId, profileSnapshot, resolvedModel, transcriptPath, outputJson, githubReviewId`.
@@ -194,7 +194,7 @@ A held-back dry run (§6.1) keeps its validated review, so it can still go to Gi
 - **Only the PR's latest run**, only while the PR is open and its head is still the run's `headSha`. When new commits have landed, the header says so instead: re-run to post. GitHub is asked for the PR's state and head before posting, since the local row can lag the poller; a mismatch refuses the post and leaves the run as it is.
 - **Posts the stored review as is** (body and every inline comment), with the same marker check as step 4, so a second click can't post twice.
 - **Success → `posted`**, with the `heron/review` check set to "Review posted" like any posted review. `finishedAt` keeps the time the review finished.
-- **Failure** (network, GitHub refusing the review) **→ `failed`**, with the error. There is no retry of the post: Re-run reviews the commit again.
+- **Failure** (network, GitHub refusing the review) leaves the run `completed` and shows the error in the header, so Post can be clicked again; the marker check keeps a retry from posting twice.
 
 ---
 

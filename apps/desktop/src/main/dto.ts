@@ -14,10 +14,9 @@ import {
   type Pr,
   type Repo,
   type Review,
-  type ReviewState,
   type Settings,
 } from "@heron/core";
-import type { HeronDb, PrListRow } from "@heron/db";
+import type { HeronDb, LatestReview, PrListRow } from "@heron/db";
 import type {
   FeedbackPanel,
   IterationBadge,
@@ -33,19 +32,18 @@ import { groupFeedback } from "./feedback.ts";
 
 const CLOSED_PR_WINDOW_MS = 14 * 24 * 3600_000;
 
-export function statusOf(state: ReviewState | null, heldBack = false): PrStatus {
-  switch (state) {
-    case null:
-      return "not_reviewed";
+export function statusOf(review: LatestReview | null): PrStatus {
+  if (!review) return "not_reviewed";
+  switch (review.state) {
     case "preparing":
     case "running":
     case "validating":
     case "posting":
       return "running";
     case "completed":
-      return heldBack ? "not_posted" : "no_issues";
+      return review.heldBack ? "not_posted" : "no_issues";
     default:
-      return state;
+      return review.state;
   }
 }
 
@@ -96,7 +94,7 @@ export function toPrListItem(
     reviewsOn: repo.reviewsOn,
     autoReview: repo.autoReview,
     repoEnabled: row.repoEnabled,
-    status: statusOf(latestReview?.state ?? null, latestReview?.heldBack),
+    status: statusOf(latestReview),
     headUnreviewed: latestReview !== null && isTerminal(latestReview.state) && latestReview.headSha !== pr.headSha,
     latestReviewId: latestReview?.id ?? null,
     latestError: latestReview?.state === "failed" ? latestReview.lastError : null,
@@ -139,7 +137,7 @@ export function toRunSummary(r: Review): RunSummary {
     model: r.resolvedModel ?? snap?.model ?? null,
     effort: snap?.effort ?? null,
     dryRun: snap?.dryRun ?? false,
-    heldBack: isHeldBack(r),
+    heldBack: isHeldBack(r.state, r.payload),
     attempt: r.attempt,
     runAfter: r.runAfter,
     lastError: r.lastError,

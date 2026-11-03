@@ -431,7 +431,7 @@ export class Scheduler {
       this.d.notify({ title: "Review posted", body: `#${pr.number} ${pr.title}`, prId: pr.id });
     }
     if (review.state === "completed" && s.notifyPosted) {
-      const title = isHeldBack(review) ? "Review ready (dry run)" : "No issues found";
+      const title = isHeldBack(review.state, review.payload) ? "Review ready (dry run)" : "No issues found";
       this.d.notify({ title, body: `#${pr.number} ${pr.title}`, prId: pr.id });
     }
   }

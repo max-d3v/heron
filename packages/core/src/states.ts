@@ -1,10 +1,10 @@
 import { isEmptyPayload } from "./diff.ts";
-import type { Review, ReviewState, StepState } from "./types.ts";
+import type { ReviewPayload, ReviewState, StepState } from "./types.ts";
 
 // debouncing → queued → preparing → running → validating → posting → posted
 //                                                         ↘ completed (dry run, or nothing to post)
 // any → failed | superseded | cancelled
-// completed → posted | failed (a dry run's held-back review, posted by hand)
+// completed → posted (a dry run's held-back review, posted by hand)
 //
 // A retry parks the review back in `queued` with `retryStep` set, so the scheduler
 // resumes at the step that failed instead of redoing the agent run.
@@ -45,13 +45,13 @@ export function isActive(state: ReviewState): boolean {
 }
 
 /** A dry run that found something: it finished `completed` without posting a review it still holds. */
-export function isHeldBack(review: Pick<Review, "state" | "payload">): boolean {
-  return review.state === "completed" && review.payload !== null && !isEmptyPayload(review.payload);
+export function isHeldBack(state: ReviewState, payload: ReviewPayload | null): boolean {
+  return state === "completed" && payload !== null && !isEmptyPayload(payload);
 }
 
 export function canTransition(from: ReviewState, to: ReviewState): boolean {
   // Posting a held-back review by hand reopens a finished run; callers check `isHeldBack`.
-  if (from === "completed") return to === "posted" || to === "failed";
+  if (from === "completed") return to === "posted";
   if (TERMINAL.has(from)) return false;
   if (to === "failed" || to === "superseded" || to === "cancelled") return true;
   return FORWARD[from].includes(to);

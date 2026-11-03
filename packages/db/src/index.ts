@@ -359,12 +359,14 @@ export interface NewActivity {
   ts?: number;
 }
 
+export type LatestReview = Pick<Review, "id" | "state" | "headSha" | "updatedAt" | "lastError"> & { heldBack: boolean };
+
 export interface PrListRow {
   pr: Pr;
   owner: string;
   repoName: string;
   repoEnabled: boolean;
-  latestReview: (Pick<Review, "id" | "state" | "headSha" | "updatedAt" | "lastError"> & { heldBack: boolean }) | null;
+  latestReview: LatestReview | null;
   reviewCount: number;
 }
 
@@ -597,7 +599,7 @@ export class HeronDb {
               updatedAt: Number(r.lr_updated_at),
               lastError: str(r.lr_last_error),
               // Only a `completed` row brings its payload: that's the one state it decides.
-              heldBack: isHeldBack({ state: r.lr_state as ReviewState, payload: json<ReviewPayload>(r.lr_payload) }),
+              heldBack: isHeldBack(r.lr_state as ReviewState, json<ReviewPayload>(r.lr_payload)),
             },
       reviewCount: Number(r.review_count),
     }));
