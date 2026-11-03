@@ -12,7 +12,6 @@ import {
   iterationMarker,
   iterationPrompt,
   iterationTrailer,
-  orderFeedbackItems,
   parseIterationOutput,
   type Feedback,
   type Iteration,
@@ -30,7 +29,7 @@ import type { HeronDb, IterationPatch } from "@heron/db";
 import { GitError, type GitClient } from "@heron/git";
 import type { GitHubClient } from "@heron/github";
 import { runIteration, runSetupCommand, runTriage, type PrContext, type TriageItem } from "@heron/harness";
-import { groupFeedback, threadForPrompt } from "./feedback.ts";
+import { batchItems, groupFeedback, threadForPrompt } from "./feedback.ts";
 import type { Paths } from "./paths.ts";
 import { PrClosedError } from "./pipeline.ts";
 import type { Store } from "./store.ts";
@@ -122,8 +121,10 @@ export class IterationPipeline {
     if (it.state === "queued") {
       // A run always starts from a clean checkout, so a retry of the agent redoes preparing.
       const start = it.retryStep === null || it.retryStep === "running" ? "preparing" : it.retryStep;
+      // The batch is saved before any step can fail, so a failed run still lists the comments it took on.
+      const items = start === "preparing" ? this.batch(it).items : undefined;
       it = store.transitionIteration(it, start, {
-        patch: { retryStep: null, runAfter: null, startedAt: it.startedAt ?? Date.now() },
+        patch: { retryStep: null, runAfter: null, startedAt: it.startedAt ?? Date.now(), items },
         message: it.retryStep ? `Resuming at ${start}` : undefined,
       });
     } else if (it.state === "running") {
@@ -175,6 +176,10 @@ export class IterationPipeline {
     const repo = pr ? this.d.db.getRepo(pr.repoId) : null;
     if (!pr || !repo) throw new PermanentError("The PR or repo was removed");
     return { pr, repo };
+  }
+
+  private batch(it: Iteration): ReturnType<typeof batchItems> {
+    return batchItems(this.d.db.listFeedbackForIteration(it.id), this.d.db.listFeedbackForPr(it.prId));
   }
 
   /** `worktree`: run in Heron's worktree even when the repo uses a local checkout. */
@@ -265,20 +270,8 @@ export class IterationPipeline {
     }
     signal.throwIfAborted();
 
-    // The batch: the claimed comments triage marked for a change, one numbered item per thread.
-    const rows = db.listFeedbackForIteration(it.id).filter((f) => f.status === "unhandled" && f.verdict === "change");
-    if (rows.length === 0) throw new PermanentError("There's no feedback left to address");
-    const groups = orderFeedbackItems(groupFeedback(rows, db.listFeedbackForPr(pr.id)));
-    const items: IterationItem[] = groups.map((g, i) => ({
-      number: i + 1,
-      kind: g.kind,
-      threadRootId: g.threadRootId,
-      feedbackIds: g.rows.map((r) => r.id),
-      path: g.path,
-      line: g.line,
-      outdated: g.outdated,
-      url: g.url,
-    }));
+    const { groups, items } = this.batch(it);
+    if (items.length === 0) throw new PermanentError("There's no feedback left to address");
     const promptItems = groups.map((g, i) => ({ number: i + 1, kind: g.kind, path: g.path, line: g.line, outdated: g.outdated, comments: threadForPrompt(g, pr.author) }));
 
     // Context files live outside the checkout in both modes.

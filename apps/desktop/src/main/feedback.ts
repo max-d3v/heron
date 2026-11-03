@@ -1,4 +1,4 @@
-import { stripIterationMarker, type Feedback, type FeedbackKind } from "@heron/core";
+import { orderFeedbackItems, stripIterationMarker, type Feedback, type FeedbackKind, type IterationItem } from "@heron/core";
 
 /**
  * A unit of feedback: an inline thread, a review body or a conversation comment. Triage
@@ -47,6 +47,26 @@ export function groupFeedback(rows: Feedback[], all: Feedback[]): FeedbackGroup[
       createdAt: root.createdAt,
     };
   });
+}
+
+/**
+ * A run's batch: the comments it claimed that triage marked for a change, one numbered item per
+ * thread. `claimed` is the iteration's rows; `all` (the PR's every row) supplies thread context.
+ */
+export function batchItems(claimed: Feedback[], all: Feedback[]): { groups: FeedbackGroup[]; items: IterationItem[] } {
+  const rows = claimed.filter((f) => f.status === "unhandled" && f.verdict === "change");
+  const groups = orderFeedbackItems(groupFeedback(rows, all));
+  const items = groups.map((g, i) => ({
+    number: i + 1,
+    kind: g.kind,
+    threadRootId: g.threadRootId,
+    feedbackIds: g.rows.map((r) => r.id),
+    path: g.path,
+    line: g.line,
+    outdated: g.outdated,
+    url: g.url,
+  }));
+  return { groups, items };
 }
 
 /** How a comment's author shows in prompts: the PR's author and Heron's own replies are marked. */

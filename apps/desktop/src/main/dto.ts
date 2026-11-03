@@ -28,7 +28,7 @@ import type {
   ReviewDetail,
   RunSummary,
 } from "@heron/rpc";
-import { groupFeedback } from "./feedback.ts";
+import { batchItems, groupFeedback } from "./feedback.ts";
 
 const CLOSED_PR_WINDOW_MS = 14 * 24 * 3600_000;
 
@@ -218,6 +218,8 @@ function threadComment(f: Feedback) {
 
 export function toIterationDetail(db: HeronDb, it: Iteration, repo: Repo): IterationDetail {
   const all = db.listFeedbackForPr(it.prId);
+  // A run that failed before its batch was saved: the comments it claimed, until a later batch takes them.
+  const items = it.items ?? (it.state === "failed" ? batchItems(db.listFeedbackForIteration(it.id), all).items : []);
   const onGitHub = it.commitSha && (it.state === "replying" || it.state === "pushed");
   return {
     ...toIterationSummary(it),
@@ -226,7 +228,7 @@ export function toIterationDetail(db: HeronDb, it: Iteration, repo: Repo): Itera
     rawOutput: it.rawOutput,
     commitUrl: onGitHub ? `https://github.com/${repo.owner}/${repo.name}/commit/${it.commitSha}` : null,
     localCheckoutFailed: it.state === "failed" && !!it.profileSnapshot?.localCheckoutPath && repo.useLocalCheckout,
-    items: (it.items ?? []).map((item) => {
+    items: items.map((item) => {
       const out = it.output?.items.find((o) => o.number === item.number);
       const thread = all.filter((f) => f.kind === item.kind && f.threadRootId === item.threadRootId).sort((a, b) => a.createdAt - b.createdAt);
       return {

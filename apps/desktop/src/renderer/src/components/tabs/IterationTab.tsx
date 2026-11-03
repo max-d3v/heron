@@ -509,6 +509,8 @@ function Items({ it }: { it: IterationDetail }) {
 
 function ItemRow({ item, first }: { item: IterationDetail["items"][number]; first: boolean }) {
   const [open, setOpen] = useState(false);
+  // The agent didn't report on it (the run failed or stopped early), so the comments are all there is to show.
+  const reported = item.status !== null;
   const author = item.comments.find((c) => !c.heron)?.author;
   return (
     <div className={cn("flex gap-2.5 px-4 py-2.5", !first && "border-t border-line")}>
@@ -522,7 +524,7 @@ function ItemRow({ item, first }: { item: IterationDetail["items"][number]; firs
           {item.outdated && <Badge>Outdated</Badge>}
           {author && <span className="shrink-0 text-fg-3">@{author}</span>}
           <span className="ml-auto flex shrink-0 items-center gap-2">
-            {item.comments.length > 0 && (
+            {reported && item.comments.length > 0 && (
               <button className="text-accent hover:underline" onClick={() => setOpen((v) => !v)}>
                 {open ? "Hide comments" : plural(item.comments.length, "comment")}
               </button>
@@ -530,8 +532,8 @@ function ItemRow({ item, first }: { item: IterationDetail["items"][number]; firs
             <OpenLink url={item.url} label="Open on GitHub" />
           </span>
         </div>
-        <div className="selectable mt-0.5 text-[12.5px]">{item.note ?? <span className="text-fg-3">No note</span>}</div>
-        {open && <Thread comments={item.comments} />}
+        {reported && <div className="selectable mt-0.5 text-[12.5px]">{item.note ?? <span className="text-fg-3">No note</span>}</div>}
+        {(open || !reported) && <Thread comments={item.comments} />}
       </div>
     </div>
   );
