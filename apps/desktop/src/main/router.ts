@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { ORPCError, implement } from "@orpc/server";
@@ -47,6 +47,13 @@ export interface Services {
 function isInside(root: string, p: string): boolean {
   const rel = relative(root, p);
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+/** Claude Code saved the session: `~/.claude/projects/<project>/<id>.jsonl`. */
+async function claudeSessionSaved(sessionId: string): Promise<boolean> {
+  const projects = join(homedir(), ".claude", "projects");
+  const dirs = await readdir(projects).catch(() => []);
+  return dirs.some((dir) => existsSync(join(projects, dir, `${sessionId}.jsonl`)));
 }
 
 /** Errors thrown by services carry a message meant for the user; don't let oRPC mask it. */
@@ -454,6 +461,18 @@ export function createRouter(s: Services) {
       discard: os.iterations.discard.handler(({ input }) => s.iterations.discard(input.id)),
       uncommit: os.iterations.uncommit.handler(({ input }) => s.iterations.uncommit(input.id)),
       rerun: os.iterations.rerun.handler(({ input }) => toIterationSummary(s.iterations.rerun(input.id, { worktree: input.worktree }))),
+      openInClaude: os.iterations.openInClaude.handler(async ({ input }) => {
+        const it = requireIteration(input.id);
+        if (!it.sessionId) throw new ORPCError("BAD_REQUEST", { message: "This iteration never started the agent" });
+        if (!(await claudeSessionSaved(it.sessionId))) {
+          throw new ORPCError("NOT_FOUND", { message: "Claude Code didn't save this run's session. Only iterations from this version of Heron on save theirs." });
+        }
+        try {
+          await s.openExternal(`claude://resume?session=${encodeURIComponent(it.sessionId)}`);
+        } catch {
+          throw new ORPCError("BAD_REQUEST", { message: "Couldn't open the Claude app. Is it installed?" });
+        }
+      }),
       cancel: os.iterations.cancel.handler(({ input }) => s.iterations.cancel(input.id)),
       diff: os.iterations.diff.handler(async ({ input }) => {
         requireIteration(input.id);

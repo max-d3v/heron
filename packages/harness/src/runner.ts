@@ -85,6 +85,10 @@ interface AgentRunOptions extends RunBase {
   additionalDirectories?: string[];
   /** A skill run's command: fail when Claude Code doesn't know it. */
   skillCommand?: string;
+  /** Save the session in `~/.claude/projects`, so it can be continued in Claude Code. */
+  persistSession?: boolean;
+  /** The saved session's title; a headless run doesn't get one otherwise. */
+  title?: string;
 }
 
 export interface RunReviewResult {
@@ -177,6 +181,9 @@ export async function runIteration(o: RunIterationOptions): Promise<RunReviewRes
     outputSchema: iterationJsonSchema(),
     settingSources: o.trustRepoClaudeConfig ? ["user", "project"] : ["user"],
     additionalDirectories: [o.workspace.contextDir],
+    // "Open in Claude" on the Iteration tab resumes it.
+    persistSession: true,
+    title: `Heron: ${o.pr.title} (${o.pr.repo}#${o.pr.number})`,
   });
 }
 
@@ -242,7 +249,8 @@ async function runAgent(o: AgentRunOptions): Promise<RunReviewResult> {
     systemPrompt: o.systemPrompt,
     outputFormat: { type: "json_schema", schema: o.outputSchema },
     env: stripEnv(o.baseEnv, o.ghConfigDir, o.clientApp),
-    persistSession: false,
+    persistSession: o.persistSession ?? false,
+    ...(o.title ? { title: o.title } : {}),
     spawnClaudeCodeProcess: makeSpawner(o.onSpawn ?? (() => undefined), (text) => {
       stderrTail = (stderrTail + text).slice(-4000);
       log({ type: "stderr", text });

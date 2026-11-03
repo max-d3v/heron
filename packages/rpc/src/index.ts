@@ -507,6 +507,8 @@ export const contract = {
     uncommit: oc.input(byId),
     /** `worktree`: run in Heron's worktree this time, even when the repo uses a local checkout. */
     rerun: oc.input(z.object({ id, worktree: z.boolean().optional() })).output(iterationSummary),
+    /** Continue the agent's Claude Code session in the Claude app (`claude://resume`). */
+    openInClaude: oc.input(byId),
     cancel: oc.input(byId),
     diff: oc.input(byId).output(z.array(diffFile)),
     transcript: oc.input(byId).output(z.object({ entries: z.array(transcriptEntry), truncated: z.boolean() })),

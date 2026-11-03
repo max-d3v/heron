@@ -206,6 +206,8 @@ query({
     systemPrompt: { type: "preset", preset: "claude_code", append: heronSystemPrompt },
     outputFormat: { type: "json_schema", schema: reviewJsonSchema },
     env: strippedEnv,                     // §7.5
+    persistSession: false,                // iterations: true, for "Open in Claude" (§15.9),
+                                          //   with title "Heron: <PR title> (<owner/repo>#<n>)"
   },
 });
 ```
@@ -266,7 +268,7 @@ Map SDK messages to `AgentStep`s: `Reading src/auth.ts`, `Searching "token"`, `R
 
 - **Clones:** app-managed partial clones (`--filter=blob:none`) in `Application Support/Heron/repos/<owner>/<name>`, authenticated with the `gh` token over HTTPS.
 - **Per-PR worktrees:** `git fetch origin pull/N/head`, then `git worktree add` in `Application Support/Heron/worktrees/<owner>/<name>/<n>`. Reset to the new SHA on a push. **Remove when the PR closes or merges.**
-- **Iteration worktrees** (§15.5): a second per-PR worktree in `Application Support/Heron/iteration-worktrees/<owner>/<name>/<n>`, removed on the same terms. Results are kept on `refs/heron/iterations/<id>`.
+- **Iteration worktrees** (§15.5): one per iteration in `Application Support/Heron/worktrees/iterations/<owner>/<name>/<n>/<id>`, all removed when the PR closes or merges. Results are kept on `refs/heron/iterations/<id>`.
 - **Push** (iterations only): the iteration commit to the PR's head branch, with the same token setup as fetches. Never forced.
 - Uses the user's `git` binary.
 - Paths in this spec are the macOS ones (`~/Library/Application Support/Heron`). On Windows the root is `%LOCALAPPDATA%\Heron`, with the same layout inside (§17.7).
@@ -300,7 +302,7 @@ Migrations live in `packages/db`. Each state change and its `activity` row are w
 ## 11. RPC (`packages/rpc`)
 
 oRPC over a `MessagePort` handed to the renderer through the preload script. Zod contracts are shared by both sides.
-- Queries/mutations: `repos.*`, `profiles.*`, `skills.*`, `settings.*`, `prs.list`, `prs.get`, `reviews.get`, `reviews.reviewNow`, `reviews.rerun`, `iterations.list/get/diff`, `iterations.start/push/discard/rerun`, `feedback.list`, `queue.pause/resume`, `doctor.check`.
+- Queries/mutations: `repos.*`, `profiles.*`, `skills.*`, `settings.*`, `prs.list`, `prs.get`, `reviews.get`, `reviews.reviewNow`, `reviews.rerun`, `iterations.list/get/diff`, `iterations.start/push/discard/rerun/openInClaude`, `feedback.list`, `queue.pause/resume`, `doctor.check`.
 - **Streams** (async iterators): `prs.watch()`, `reviews.activity(prId)`, `reviews.agentSteps(reviewId)`, `iterations.agentSteps(iterationId)`, `queue.status()`.
 
 ---
@@ -399,7 +401,7 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
 - Nothing to change → the batch ends `skipped`.
 
 ### 15.5 Agent run
-- **Worktree mode** (default): a separate worktree per PR in `Application Support/Heron/worktrees/iterations/<owner>/<name>/<n>`, independent of the review worktree. Each run checks out the PR head, runs `clean -ffdx`, then the full `setupCommand` if set. Setup failure → `failed` with its output, no retry. Setup time counts toward the timeout.
+- **Worktree mode** (default): each iteration gets its own worktree in `Application Support/Heron/worktrees/iterations/<owner>/<name>/<n>/<id>`, independent of the review worktree. A later iteration never resets it, so its session can be continued there (§15.9); it's removed when the PR closes or merges. The run checks out the PR head (a retry resets the worktree and runs `clean -ffdx`), then the full `setupCommand` if set. Setup failure → `failed` with its output, no retry. Setup time counts toward the timeout.
 - **Local checkout mode** (`useLocalCheckout` on): the checkout must be on the PR's head branch, have a clean working tree, and have `HEAD` = the PR's `headSha`. If any check fails → `failed` with the reason. No setup command runs. A failed iteration in this mode offers **Re-run in a worktree**: the re-run (and its re-run if it goes stale) uses Heron's worktree and the setup command, leaving the local checkout alone; the repo setting doesn't change.
 - **Context files** go in `Application Support/Heron/iterations/<id>/`, outside the checkout in both modes: `pr.json`, `pr.diff`, `pr-comments.json`, `feedback.json`.
 - **User message:** an iteration version of the copy prompt (`ALL_ISSUES` in `core/issue-copy-prompt.ts`, without the sentence about replying in threads and resolving them), then numbered `<violation>` blocks. Inline comments are grouped by `<file>`; review bodies and conversation comments go in a general group.
@@ -461,6 +463,7 @@ A batch that's triaged while another one waits (`held` or `awaiting_start`) is m
 - **Iteration tab** (PR detail):
   - **Feedback**, while a batch is open: each comment with author, location, verdict and reason. With manual start (or after the loop cap), an **Iterate** button, disabled while a result is `ready`.
   - **Latest iteration** that ran the agent: live steps while running. Then the commit title, addressed and not-addressed items with their notes, a unified diff (collapsible files, no syntax highlighting), the commit link, **Push** / **Discard** / **Uncommit** (when `ready`; Uncommit in local checkout mode only) and **Re-run**.
+  - **Open in Claude**, once the agent ran: opens `claude://resume?session=<sessionId>`, which imports the agent's saved session into the Claude app's Code tab, to continue in the folder it ran in. Hidden for a worktree iteration once the PR closes (its worktree is gone).
   - On other people's PRs: an empty state, "Iterations only run on PRs you opened".
 - **Runs:** separate Reviews and Iterations sections. An iteration row shows state, model, triage result ("4 of 6 to change"), addressed count, duration and commit. Clicking opens it in the Iteration tab. `skipped` batches appear here, never as the latest iteration.
 - **Transcript:** unchanged. For an iteration, the triage call(s) then the agent's turns.
