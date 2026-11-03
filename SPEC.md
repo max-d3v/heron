@@ -388,15 +388,16 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
 - **Detection:** when the poller sees an eligible PR's `updated_at` change, fetch its conversation and record new comments in `feedback`.
 - **No backfill exception:** existing PRs and comments follow the same rules as new ones. Outdated inline comments are included; the agent checks them against the current code.
 - **Debounce:** a batch starts `iterationDebounce` after the newest unhandled comment. Each new comment resets it.
-- **Handled:** a comment is handled once triage marks it `no-change`, or once it was part of an iteration that ended `pushed`, `no_changes`, `discarded` or `uncommitted`. Handled comments are never triaged or sent again. A new reply in a thread makes that thread unhandled again, and the whole thread is sent.
+- **Handled:** a comment is handled once triage marks it `no-change`, once its inline thread is resolved on GitHub when the batch is triaged (§15.4), or once it was part of an iteration that ended `pushed`, `no_changes`, `discarded` or `uncommitted`. Handled comments are never triaged or sent again. A new reply in a thread makes that thread unhandled again, and the whole thread is sent.
 
 ### 15.4 Triage
+- **Resolved threads first:** inline threads already resolved on GitHub, by anyone, are set aside before the call (GraphQL `reviewThreads`, one query per batch). Their comments count as handled and leave the batch with no verdict, so neither triage nor the agent sees them; Activity logs how many. Unresolving a thread doesn't bring it back; a reply on it once it's open does. A transient error, limit or login problem retries the triage; any other error skips the check and is logged.
 - One Agent SDK call: Haiku, effort `low`, no tools, one turn, structured output. It runs in every mode and doesn't take a parallel-run slot.
 - **Input** per comment: body, kind, author, and for inline comments `path`/`line`, `diff_hunk` and the thread. Plus the PR title.
 - **Output:** `{ verdicts: [{ id, verdict: "change" | "no-change", reason }] }`. `no-change` covers questions, praise, acks and things already done.
 - Triage only sets aside comments there's nothing to do for. It doesn't judge whether a finding is right; the agent does.
 - Every `change` comment goes to the agent. There's no per-comment picking and no override.
-- Nothing to change → the batch ends `skipped`.
+- Nothing to change, or every thread resolved → the batch ends `skipped`.
 
 ### 15.5 Agent run
 - **Worktree mode** (default): a separate worktree per PR in `Application Support/Heron/worktrees/iterations/<owner>/<name>/<n>`, independent of the review worktree. Each run checks out the PR head, runs `clean -ffdx`, then the full `setupCommand` if set. Setup failure → `failed` with its output, no retry. Setup time counts toward the timeout.

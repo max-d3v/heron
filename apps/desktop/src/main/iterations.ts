@@ -525,14 +525,53 @@ export class IterationScheduler {
       this.candidates(pr, repo).map((f) => f.id),
       { iterationId: it.id },
     );
-    const rows = db.listFeedbackForIteration(it.id).filter((f) => f.status === "unhandled");
+    const claimed = db.listFeedbackForIteration(it.id).filter((f) => f.status === "unhandled");
+    const rows = await this.setAsideResolved(it, pr, repo, claimed);
+    if (signal.aborted) return;
     if (rows.length === 0) {
-      store.transitionIteration(it, "skipped", { patch: { finishedAt: Date.now() }, message: "Nothing left to triage" });
+      const why = claimed.length > 0 ? "Every thread is resolved on GitHub" : "Nothing left to triage";
+      store.transitionIteration(it, "skipped", { patch: { finishedAt: Date.now() }, message: why });
       return;
     }
     const verdicts = await pipeline.triage(it, rows, signal);
     if (signal.aborted) return;
     this.applyTriage(it, rows, verdicts);
+  }
+
+  /**
+   * Inline threads already resolved on GitHub, by anyone, are done: their comments count as handled
+   * and leave the batch, so neither triage nor the agent sees them. Returns the rows left. A reply
+   * on the thread once it's unresolved brings the whole thread back (§15.3).
+   */
+  private async setAsideResolved(it: Iteration, pr: Pr, repo: Repo, rows: Feedback[]): Promise<Feedback[]> {
+    const { db, store, github } = this.d;
+    if (!rows.some((f) => f.kind === "inline")) return rows;
+    let threads: Map<number, { id: string; resolved: boolean }>;
+    try {
+      threads = await github.listReviewThreads(repo.owner, repo.name, pr.number);
+    } catch (err) {
+      // A transient error, a limit or a login problem retries the triage; anything else skips the check.
+      if (classifyError(err) !== "permanent") throw err;
+      store.activity({ prId: pr.id, reviewId: null, iterationId: it.id, kind: "iteration.error", message: `Couldn't check which threads are resolved: ${errorMessage(err)}` });
+      return rows;
+    }
+    const resolved = rows.filter((f) => f.kind === "inline" && threads.get(f.threadRootId)?.resolved);
+    if (resolved.length === 0) return rows;
+    db.updateFeedback(
+      resolved.map((f) => f.id),
+      { iterationId: null, status: "handled", handledAt: Date.now() },
+    );
+    const count = new Set(resolved.map(groupKey)).size;
+    store.activity({
+      prId: pr.id,
+      reviewId: null,
+      iterationId: it.id,
+      kind: "feedback.triaged",
+      message: `Set aside ${plural(count, "thread")} already resolved on GitHub`,
+      data: { resolved: count },
+    });
+    const gone = new Set(resolved.map((f) => f.id));
+    return rows.filter((f) => !gone.has(f.id));
   }
 
   /** Save the verdicts (a thread's verdict covers all its comments; no-change handles them), then route the batch. */
