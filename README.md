@@ -157,3 +157,5 @@ Releases are automatic, with [semantic-release](https://semantic-release.gitbook
 When there's a new version, it builds both installers with it, tags the commit `v<version>` and publishes a GitHub release with the installers and the changes. The download buttons always point to the newest release.
 
 The version lives in the tags, not in the code: `apps/desktop/package.json` stays at `0.0.0-development`, and CI stamps the release version into each build. With squash merges, the PR title becomes the commit title, so it needs the same format.
+
+If a build fails, re-run the workflow on `main` (Actions → Release → Run workflow). If the `release` job fails after it pushed the `v<version>` tag, a re-run finds nothing new to release: delete the tag and any draft release it left first (`git push --delete origin v<version>`).

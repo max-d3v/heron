@@ -5,7 +5,9 @@
 # always get the newest build.
 #
 # Run by hand on any branch, it builds both installers as workflow artifacts. On main it also
-# publishes a release if one is due, e.g. to retry a failed one.
+# publishes a release if one is due, e.g. to retry after a failed build. Once the release job has
+# pushed the v<version> tag, a re-run finds nothing to release: if it fails after that (say, an asset
+# upload), delete the tag and its draft release before re-running.
 name: Release
 
 on:
