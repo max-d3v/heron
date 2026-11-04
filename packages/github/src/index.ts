@@ -56,6 +56,9 @@ export interface PrFile {
   deletions: number;
 }
 
+/** A PR's inline threads on GitHub, keyed by their first comment's id. */
+export type ReviewThreads = Map<number, { id: string; resolved: boolean }>;
+
 export interface ConversationComment {
   id: number;
   author: string;
@@ -530,8 +533,8 @@ export class GitHubClient {
   }
 
   /** The PR's inline threads (GraphQL only), keyed by their first comment's id. */
-  async listReviewThreads(owner: string, repo: string, number: number): Promise<Map<number, { id: string; resolved: boolean }>> {
-    const out = new Map<number, { id: string; resolved: boolean }>();
+  async listReviewThreads(owner: string, repo: string, number: number): Promise<ReviewThreads> {
+    const out: ReviewThreads = new Map();
     let after: string | null = null;
     do {
       const data: ReviewThreadsPage = await this.call(`Threads of ${owner}/${repo}#${number}`, (o) =>

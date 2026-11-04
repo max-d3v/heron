@@ -1,6 +1,6 @@
-import { stripIterationMarker, type Feedback, type FeedbackKind, type Pr, type Repo } from "@heron/core";
+import { isIterationTerminal, stripIterationMarker, type Feedback, type FeedbackKind, type Pr, type Repo } from "@heron/core";
 import type { HeronDb } from "@heron/db";
-import type { GitHubClient } from "@heron/github";
+import type { GitHubClient, ReviewThreads } from "@heron/github";
 import type { Store } from "./store.ts";
 
 /**
@@ -65,9 +65,6 @@ export function threadForPrompt(group: FeedbackGroup, prAuthor: string): Array<{
 
 // ── resolved threads (§15.3) ────────────────────────────────────────────────
 
-/** The PR's inline threads on GitHub, keyed by their first comment's id. */
-export type ReviewThreads = Map<number, { id: string; resolved: boolean }>;
-
 /** Why a batch ends `skipped` when the threads it held were all resolved on GitHub. */
 export const ALL_RESOLVED = "Every thread left was resolved on GitHub";
 
@@ -89,25 +86,34 @@ const threadsLabel = (n: number, adjective: string) => `${n} ${adjective} thread
 
 /**
  * Set aside comments whose thread was resolved on GitHub: handled, flagged so an unresolve can
- * bring them back, and out of any batch. A batch that had already triaged them stops counting
- * them, so its "N of M to change" covers only what it ran on.
+ * bring them back, and out of any live batch. A live batch that had already triaged them stops
+ * counting them, so its "N of M to change" covers only what it ran on. A finished batch keeps
+ * them and its counts, so a Re-run of it takes them back (§15.5).
  */
 export function setAsideResolved(db: HeronDb, store: Store, prId: number, rows: Feedback[], iterationId: number | null = null): void {
   if (rows.length === 0) return;
   const now = Date.now();
   db.tx(() => {
-    db.updateFeedback(
-      rows.map((f) => f.id),
-      { status: "handled", handledAt: now, setAsideResolved: true, iterationId: null },
-    );
     const byBatch = new Map<number, Feedback[]>();
-    for (const f of rows) if (f.iterationId !== null && f.verdict !== null) byBatch.set(f.iterationId, [...(byBatch.get(f.iterationId) ?? []), f]);
-    for (const [id, triaged] of byBatch) {
+    for (const f of rows) if (f.iterationId !== null) byBatch.set(f.iterationId, [...(byBatch.get(f.iterationId) ?? []), f]);
+    const finished = new Set<number>();
+    for (const [id, members] of byBatch) {
       const it = db.getIteration(id);
       if (!it) continue;
+      if (isIterationTerminal(it.state)) {
+        finished.add(id);
+        continue;
+      }
+      const triaged = members.filter((f) => f.verdict !== null);
+      if (triaged.length === 0) continue;
       const change = threadCount(triaged.filter((f) => f.verdict === "change"));
       db.updateIteration(id, { triageTotal: Math.max(0, it.triageTotal - threadCount(triaged)), triageChange: Math.max(0, it.triageChange - change) });
     }
+    const kept = rows.filter((f) => f.iterationId !== null && finished.has(f.iterationId));
+    const released = rows.filter((f) => f.iterationId === null || !finished.has(f.iterationId));
+    const setAside = { status: "handled", handledAt: now, setAsideResolved: true } as const;
+    db.updateFeedback(kept.map((f) => f.id), setAside);
+    db.updateFeedback(released.map((f) => f.id), { ...setAside, iterationId: null });
   });
   const threads = threadCount(rows);
   store.activity({

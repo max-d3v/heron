@@ -28,7 +28,7 @@ import {
 } from "@heron/core";
 import type { HeronDb, IterationPatch } from "@heron/db";
 import { GitError, type GitClient } from "@heron/git";
-import type { GitHubClient } from "@heron/github";
+import type { GitHubClient, ReviewThreads } from "@heron/github";
 import { runIteration, runSetupCommand, runTriage, type PrContext, type TriageItem } from "@heron/harness";
 import { ALL_RESOLVED, groupFeedback, inResolvedThreads, setAsideResolved, threadForPrompt, threadsFor } from "./feedback.ts";
 import type { Paths } from "./paths.ts";
@@ -546,7 +546,7 @@ export class IterationPipeline {
       if (classifyError(err) !== "permanent") throw err;
       store.activity({ prId: it.prId, reviewId: null, iterationId: it.id, kind: "iteration.error", message: `Couldn't resolve a thread: ${errorMessage(err)}` });
     };
-    let threads: Map<number, { id: string; resolved: boolean }>;
+    let threads: ReviewThreads;
     try {
       threads = await github.listReviewThreads(repo.owner, repo.name, pr.number);
     } catch (err) {

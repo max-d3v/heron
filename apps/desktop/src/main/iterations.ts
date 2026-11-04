@@ -14,6 +14,7 @@ import {
   occupiesPr,
   type Feedback,
   type Iteration,
+  type IterationState,
   type PauseReason,
   type Pr,
   type PrChange,
@@ -23,9 +24,9 @@ import {
 } from "@heron/core";
 import type { HeronDb } from "@heron/db";
 import type { GitClient } from "@heron/git";
-import type { GitHubClient } from "@heron/github";
+import type { GitHubClient, ReviewThreads } from "@heron/github";
 import { RunAbortedError } from "@heron/harness";
-import { ALL_RESOLVED, groupKey, inResolvedThreads, restoreUnresolved, setAsideResolved, threadsFor, type ReviewThreads } from "./feedback.ts";
+import { ALL_RESOLVED, groupKey, inResolvedThreads, restoreUnresolved, setAsideResolved, threadsFor } from "./feedback.ts";
 import { StaleError, type IterationPipeline } from "./iteration-pipeline.ts";
 import type { Paths } from "./paths.ts";
 import { PrClosedError } from "./pipeline.ts";
@@ -63,7 +64,7 @@ const short = (sha: string) => sha.slice(0, 7);
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Batches that haven't started their triage call or their run: a sync may take resolved threads out of them. */
-const WAITING: ReadonlySet<Iteration["state"]> = new Set(["debouncing", "awaiting_start", "held"]);
+const WAITING: ReadonlySet<IterationState> = new Set(["debouncing", "awaiting_start", "held"]);
 
 /**
  * Owns iterations (§15): keeps each eligible PR's comments in `feedback`, batches the
@@ -244,13 +245,14 @@ export class IterationScheduler {
   /**
    * Resolved threads never reach triage or the agent (§15.3). Their unhandled comments are set
    * aside, unless a batch past waiting holds them (in triage, running, or a result): the checks at
-   * triage and before the run cover those. Comments set aside for a thread that's open again come
-   * back. A batch waiting for Iterate or behind another iteration that's left with nothing ends skipped.
+   * triage and before the run cover those. A live Re-run keeps its comments whatever their state,
+   * even while held (§15.5). Comments set aside for a thread that's open again come back. A batch
+   * waiting for Iterate or behind another iteration that's left with nothing ends skipped.
    */
   private followResolution(pr: Pr, threads: ReviewThreads): void {
     const { db, store } = this.d;
     const its = db.listIterationsForPr(pr.id);
-    const busy = new Set(its.filter((i) => isIterationActive(i.state) && !WAITING.has(i.state)).map((i) => i.id));
+    const busy = new Set(its.filter((i) => isIterationActive(i.state) && (!WAITING.has(i.state) || i.trigger === "rerun")).map((i) => i.id));
     const free = db.listFeedbackForPr(pr.id, "unhandled").filter((f) => f.iterationId === null || !busy.has(f.iterationId));
     const resolved = inResolvedThreads(free, threads);
     setAsideResolved(db, store, pr.id, resolved);
