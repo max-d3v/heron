@@ -17,6 +17,7 @@
   "devDependencies": {
     "@heron/config": "workspace:*",
     "eslint": "^10.13.0",
+    "semantic-release": "^25.0.9",
     "turbo": "^2.11.10",
     "typescript": "~6.0.3"
   }

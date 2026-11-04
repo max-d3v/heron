@@ -1,7 +1,7 @@
 {
   "name": "@heron/desktop",
   "productName": "Heron",
-  "version": "0.1.0",
+  "version": "0.0.0-development",
   "description": "Automatic PR reviews with your own Claude subscription",
   "private": true,
   "type": "module",
