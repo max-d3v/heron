@@ -1,0 +1,21 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits" }],
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    "./scripts/release-version.js",
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "artifacts/heron-macos-dmg/*.dmg", "name": "Heron-mac-arm64.dmg", "label": "Heron for macOS (Apple silicon)" },
+          { "path": "artifacts/heron-windows-installer/*.exe", "name": "Heron-windows-x64-setup.exe", "label": "Heron for Windows (x64)" }
+        ],
+        "releaseBodyTemplate": "**macOS** (Apple silicon): open the `.dmg` and drag Heron to Applications. Heron isn't notarized yet, so macOS blocks the first open: click Done, then System Settings → Privacy & Security → Open Anyway.\n\n**Windows** 10 or 11 (x64): run the installer. It installs for your user only, with no admin prompt. It's unsigned, so SmartScreen warns the first time: More info → Run anyway.\n\nHeron needs `git`, `gh` and `claude` installed and logged in. On launch it checks all three and shows how to fix anything missing. See the [README](https://github.com/max-d3v/heron#get-started).\n\n<%= nextRelease.notes %>",
+        "successComment": false,
+        "failComment": false,
+        "releasedLabels": false
+      }
+    ]
+  ]
+}

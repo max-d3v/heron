@@ -16,7 +16,9 @@
   },
   "devDependencies": {
     "@heron/config": "workspace:*",
+    "conventional-changelog-conventionalcommits": "^9.3.1",
     "eslint": "^10.13.0",
+    "semantic-release": "^25.0.9",
     "turbo": "^2.11.10",
     "typescript": "~6.0.3"
   }

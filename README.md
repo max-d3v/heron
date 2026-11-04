@@ -145,13 +145,17 @@ Set `HERON_DATA_DIR=/some/dir` to run against a separate copy of the data.
 - **macOS** (Apple silicon): `pnpm dist` → `apps/desktop/dist/Heron-<version>-arm64.dmg`.
 - **Windows**: built on Windows by GitHub Actions. Run the **Release** workflow (Actions → Release → Run workflow) and download `heron-windows-installer` from the run's artifacts. On a Windows machine you can also run `pnpm dist:win`.
 
-### Publish a release
+### Releases
 
-Bump `version` in `apps/desktop/package.json`, merge it, then push a matching tag:
+Releases are automatic, with [semantic-release](https://semantic-release.gitbook.io). On every push to `main`, the **Release** workflow reads the commit titles since the last release ([Conventional Commits](https://www.conventionalcommits.org)) and picks the next version:
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+- `fix:` or `perf:` → patch (1.0.**1**)
+- `feat:` → minor (1.**1**.0)
+- `!` after the type (`feat!:`) or a `BREAKING CHANGE:` footer → major (**2**.0.0)
+- anything else (`docs:`, `refactor:`, `build:`, `chore:`, merge commits) → no release
 
-The Release workflow builds both installers and publishes them to a GitHub release. The download buttons always point to the newest release.
+When there's a new version, it builds both installers with it, tags the commit `v<version>` and publishes a GitHub release with the installers and the changes. The download buttons always point to the newest release.
+
+The version lives in the tags, not in the code: `apps/desktop/package.json` stays at `0.0.0-development`, and CI stamps the release version into each build. With squash merges, the PR title becomes the commit title, so it needs the same format.
+
+If a build fails, re-run the workflow on `main` (Actions → Release → Run workflow). If the `release` job fails after it pushed the `v<version>` tag, a re-run finds nothing new to release: delete the tag and any draft release it left first (`git push --delete origin v<version>`).
