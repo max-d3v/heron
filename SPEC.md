@@ -343,8 +343,9 @@ Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`,
 
 ## 13. Distribution
 
-- **v1:** an unsigned `.dmg` built with electron-builder, for personal use only.
+- **v1:** an ad-hoc signed, not notarized `.dmg` built with electron-builder (`identity: "-"`). With no signature at all, a downloaded copy is reported as damaged on Apple silicon; ad-hoc, macOS blocks the first open and Privacy & Security → Open Anyway allows it.
 - **Windows v1:** an unsigned per-user NSIS installer, built by a GitHub Actions Windows job (§17.9).
+- **Downloads:** a `v*` tag publishes both installers to a GitHub release under fixed names (§17.9), so the README's download buttons link to `releases/latest/download/…`.
 - **Public later:**
   - Apple Developer ID, signing and notarization in CI.
   - Windows code signing, so SmartScreen stops warning.
@@ -559,9 +560,9 @@ Heron also runs on Windows, for the same audience as v1 (only me) and with the s
 
 ### 17.9 Build and distribution
 - **electron-builder `win`:** `nsis`, x64, per-user (`oneClick: true`, `perMachine: false`), so installing needs no admin. Unsigned, so SmartScreen warns on first run (More info → Run anyway). The icon comes from `build/icon.png`, which is above the 256px minimum.
-- **Scripts:** `dist:win` = `electron-vite build && electron-builder --win --x64 --publish never` (on a tag in CI, electron-builder would otherwise try to publish a GitHub release). `dist` stays macOS.
+- **Scripts:** `dist:win` = `electron-vite build && electron-builder --win --x64 --publish never` (on a tag in CI, electron-builder would otherwise try to publish a GitHub release). `dist` stays macOS and also passes `--publish never`; the workflow publishes the release itself.
 - **Built on Windows only**, by the CI job below. (`better-sqlite3` isn't what ties it to Windows: the version in use (13) carries prebuilds for every platform in its npm package, `win32-x64.node` included, and loads the one for the OS it runs on. With `npmRebuild: false` the package ships them all as they are.)
-- **CI:** `.github/workflows/windows.yml` on `windows-latest`, run manually (`workflow_dispatch`) and on `v*` tags: `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm dist:win`, then upload the installer as a workflow artifact.
+- **CI:** `.github/workflows/release.yml`, run manually (`workflow_dispatch`) and on `v*` tags. A matrix on `macos-latest` (arm64) and `windows-latest` runs `pnpm install`, `pnpm typecheck`, `pnpm lint`, then `pnpm dist` or `pnpm dist:win`, and uploads the installer as a workflow artifact. On a tag, each build first checks the tag equals `v` + `apps/desktop/package.json`'s version, and a last job publishes both to a GitHub release as `Heron-mac-arm64.dmg` and `Heron-windows-x64-setup.exe`.
 - The `!node_modules/@anthropic-ai/claude-agent-sdk-*/**` exclusion stays; it covers the SDK's Windows binaries too.
 - The README gets the Windows requirements and how to get the installer.
 

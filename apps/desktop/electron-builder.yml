@@ -24,15 +24,17 @@ mac:
   target:
     - target: dmg
       arch: [arm64]
-  # v1 is unsigned (personal use). Signing + notarization come with the public release.
-  identity: null
+  # Ad-hoc signed, not notarized. Without any signature, a downloaded copy is "damaged" on
+  # Apple silicon; ad-hoc, macOS blocks the first open and Privacy & Security → Open Anyway allows it.
+  # Developer ID signing + notarization come later (SPEC §13).
+  identity: "-"
   hardenedRuntime: false
   extendInfo:
     LSUIElement: false
     NSUserNotificationAlertStyle: alert
 dmg:
   title: Heron
-# Built on Windows only, by .github/workflows/windows.yml. v1 is unsigned (personal use):
+# Built on Windows only, by .github/workflows/release.yml. v1 is unsigned (personal use):
 # SmartScreen warns on first run (More info → Run anyway).
 win:
   target:

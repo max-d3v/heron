@@ -2,6 +2,11 @@
 
 Run automatic code reviews on your GitHub pull requests using your Claude Code subscription. A highly configurable app for macOS and Windows, now with [iterations](#iterations-review-fix-repeat): Claude reviews, fixes and repeats.
 
+[![Download for macOS](https://img.shields.io/badge/Download_for_macOS-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/max-d3v/heron/releases/latest/download/Heron-mac-arm64.dmg)
+[![Download for Windows](https://img.shields.io/badge/Download_for_Windows-0078D4?style=for-the-badge&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0iI2ZmZiIgZD0iTTAgMGgxMS40djExLjRIMHptMTIuNiAwSDI0djExLjRIMTIuNnpNMCAxMi42aDExLjRWMjRIMHptMTIuNiAwSDI0VjI0SDEyLjZ6Ii8%2BPC9zdmc%2B)](https://github.com/max-d3v/heron/releases/latest/download/Heron-windows-x64-setup.exe)
+
+macOS on Apple silicon · Windows 10 or 11, x64 · [All releases](https://github.com/max-d3v/heron/releases) · [First open](#2-download-and-open-the-app)
+
 <!-- TODO: demo video. Drag the .mp4 into this file on github.com to get an embed link, then paste it here. -->
 
 
@@ -36,20 +41,13 @@ On Windows:
 - `claude`: the native installer, in PowerShell: `irm https://claude.ai/install.ps1 | iex`, then run `claude` to log in. Heron runs `claude.exe` itself, never npm's `claude.cmd` wrapper.
 - Optional: turn on long paths (`LongPathsEnabled`, needs admin) if a setup command's `node_modules` gets deep. The Doctor shows the command.
 
-### 2. Build and open the app
+### 2. Download and open the app
 
-**macOS** (Apple silicon). Needs Node 22+ and pnpm 11.
+**macOS** (Apple silicon): [download the `.dmg`](https://github.com/max-d3v/heron/releases/latest/download/Heron-mac-arm64.dmg), open it and drag Heron to Applications. Heron isn't notarized yet, so macOS blocks the first open: click **Done**, then go to System Settings → **Privacy & Security** and click **Open Anyway**.
 
-```bash
-pnpm install
-pnpm dist           # → apps/desktop/dist/Heron-<version>-arm64.dmg
-```
+**Windows** 10 22H2 or 11, x64 (ARM PCs run it under emulation): [download the installer](https://github.com/max-d3v/heron/releases/latest/download/Heron-windows-x64-setup.exe) and run it. It installs for your user only, with no admin prompt. It's unsigned, so SmartScreen warns the first time: More info → Run anyway.
 
-The build is unsigned, so the first time you open it, right-click the app → Open.
-
-**Windows** 10 22H2 or 11, x64 (ARM PCs run it under emulation). The installer is built on Windows by GitHub Actions: run the **Windows** workflow (Actions → Windows → Run workflow), or push a `v*` tag, and download `heron-windows-installer` from the run's artifacts. On a Windows machine you can also build it yourself with `pnpm install` and `pnpm dist:win`.
-
-It installs for your user only, with no admin prompt. It's unsigned, so SmartScreen warns the first time: More info → Run anyway.
+Older versions are on the [Releases page](https://github.com/max-d3v/heron/releases). To build the app yourself, see [Develop](#develop).
 
 ### 3. Add a repository
 
@@ -131,6 +129,8 @@ Settings → **General** has parallel iterations (2), the wait after the last co
 
 ## Develop
 
+Needs Node 22+ and pnpm 11.
+
 ```bash
 pnpm install
 pnpm dev            # electron-vite dev server with HMR
@@ -139,3 +139,19 @@ pnpm lint
 ```
 
 Set `HERON_DATA_DIR=/some/dir` to run against a separate copy of the data.
+
+### Build the installers
+
+- **macOS** (Apple silicon): `pnpm dist` → `apps/desktop/dist/Heron-<version>-arm64.dmg`.
+- **Windows**: built on Windows by GitHub Actions. Run the **Release** workflow (Actions → Release → Run workflow) and download `heron-windows-installer` from the run's artifacts. On a Windows machine you can also run `pnpm dist:win`.
+
+### Publish a release
+
+Bump `version` in `apps/desktop/package.json`, merge it, then push a matching tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The Release workflow builds both installers and publishes them to a GitHub release. The download buttons always point to the newest release.
