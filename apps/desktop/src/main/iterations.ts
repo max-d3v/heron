@@ -25,7 +25,7 @@ import type { HeronDb } from "@heron/db";
 import type { GitClient } from "@heron/git";
 import type { GitHubClient } from "@heron/github";
 import { RunAbortedError } from "@heron/harness";
-import { groupKey } from "./feedback.ts";
+import { ALL_RESOLVED, groupKey, inResolvedThreads, restoreUnresolved, setAsideResolved, threadsFor, type ReviewThreads } from "./feedback.ts";
 import { StaleError, type IterationPipeline } from "./iteration-pipeline.ts";
 import type { Paths } from "./paths.ts";
 import { PrClosedError } from "./pipeline.ts";
@@ -61,6 +61,9 @@ interface ActiveRun {
 
 const short = (sha: string) => sha.slice(0, 7);
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Batches that haven't started their triage call or their run: a sync may take resolved threads out of them. */
+const WAITING: ReadonlySet<Iteration["state"]> = new Set(["debouncing", "awaiting_start", "held"]);
 
 /**
  * Owns iterations (§15): keeps each eligible PR's comments in `feedback`, batches the
@@ -208,19 +211,23 @@ export class IterationScheduler {
       });
   }
 
-  /** Record the PR's comments (§15.3) and owe a batch if new ones count. */
+  /** Record the PR's comments (§15.3), follow their threads' resolved state, and owe a batch if new ones count. */
   async syncFeedback(pr: Pr): Promise<void> {
     const { db, store, github } = this.d;
     const repo = db.getRepo(pr.repoId);
     if (!repo) return;
     const updatedAt = pr.updatedAt;
     const observed = await github.getFeedback(repo.owner, repo.name, pr.number);
+    const threads = await threadsFor(github, repo, pr, observed);
     if (this.stopped) return;
     const added = db.upsertFeedback(pr.id, observed);
     db.updatePr(pr.id, { feedbackSyncedAt: updatedAt });
     this.syncRetryAt.delete(pr.id);
+    this.followResolution(pr, threads);
     const viewer = this.d.viewerLogin();
-    const counting = added.filter((f) => f.status === "unhandled" && feedbackCounts(repo.iterationComments, f.author, viewer));
+    // New comments in a resolved thread were just set aside: they're not news.
+    const unhandled = new Set(db.listFeedbackForPr(pr.id, "unhandled").map((f) => f.id));
+    const counting = added.filter((f) => unhandled.has(f.id) && feedbackCounts(repo.iterationComments, f.author, viewer));
     if (counting.length > 0) {
       store.activity({
         prId: pr.id,
@@ -232,6 +239,31 @@ export class IterationScheduler {
     }
     this.plan(pr.id);
     store.prsChanged();
+  }
+
+  /**
+   * Resolved threads never reach triage or the agent (§15.3). Their unhandled comments are set
+   * aside, unless a batch past waiting holds them (in triage, running, or a result): the checks at
+   * triage and before the run cover those. Comments set aside for a thread that's open again come
+   * back. A batch waiting for Iterate or behind another iteration that's left with nothing ends skipped.
+   */
+  private followResolution(pr: Pr, threads: ReviewThreads): void {
+    const { db, store } = this.d;
+    const its = db.listIterationsForPr(pr.id);
+    const busy = new Set(its.filter((i) => isIterationActive(i.state) && !WAITING.has(i.state)).map((i) => i.id));
+    const free = db.listFeedbackForPr(pr.id, "unhandled").filter((f) => f.iterationId === null || !busy.has(f.iterationId));
+    const resolved = inResolvedThreads(free, threads);
+    setAsideResolved(db, store, pr.id, resolved);
+    // Only a thread GitHub still lists and shows open comes back.
+    const reopened = db.listFeedbackForPr(pr.id, "handled").filter((f) => f.setAsideResolved && threads.get(f.threadRootId)?.resolved === false);
+    restoreUnresolved(db, store, pr.id, reopened);
+
+    const emptied = new Set(resolved.map((f) => f.iterationId));
+    for (const it of its) {
+      if (it.state !== "awaiting_start" && it.state !== "held") continue;
+      if (!emptied.has(it.id) || db.listFeedbackForIteration(it.id).some((f) => f.status === "unhandled")) continue;
+      store.transitionIteration(it, "skipped", { patch: { finishedAt: Date.now() }, message: ALL_RESOLVED });
+    }
   }
 
   // ── PR changes (from the poller) ──────────────────────────────────────────
@@ -303,13 +335,16 @@ export class IterationScheduler {
       const created = db.createIteration({
         prId: pr.id,
         state: this.occupied(pr.id, from.id) ? "held" : "queued",
-        trigger,
+        // A Re-run's comments were asked for by hand, so it skips the resolved check before the run
+        // (§15.5); when it goes stale, its requeue is still that Re-run.
+        trigger: from.trigger === "rerun" ? "rerun" : trigger,
         runAfter: Date.now(),
         transcriptPath: this.d.paths.iterationTranscript,
       });
+      // A Re-run can take back comments set aside since for a resolved thread.
       db.updateFeedback(
         rows.map((f) => f.id),
-        { iterationId: created.id, status: "unhandled", handledAt: null },
+        { iterationId: created.id, status: "unhandled", handledAt: null, setAsideResolved: false },
       );
       return db.updateIteration(created.id, { triageTotal: from.triageTotal, triageChange: from.triageChange, profileSnapshot }) ?? created;
     });
@@ -510,7 +545,7 @@ export class IterationScheduler {
   }
 
   private async triage(debouncing: Iteration, signal: AbortSignal): Promise<void> {
-    const { db, store, pipeline } = this.d;
+    const { db, store, pipeline, github } = this.d;
     const pr = db.getPr(debouncing.prId);
     const repo = pr ? this.eligibleRepo(pr) : null;
     if (!pr || !repo) {
@@ -525,9 +560,14 @@ export class IterationScheduler {
       this.candidates(pr, repo).map((f) => f.id),
       { iterationId: it.id },
     );
+    // Threads resolved since the last sync never reach Haiku.
+    const claimed = db.listFeedbackForIteration(it.id).filter((f) => f.status === "unhandled");
+    const resolved = inResolvedThreads(claimed, await threadsFor(github, repo, pr, claimed));
+    if (signal.aborted) return;
+    setAsideResolved(db, store, pr.id, resolved, it.id);
     const rows = db.listFeedbackForIteration(it.id).filter((f) => f.status === "unhandled");
     if (rows.length === 0) {
-      store.transitionIteration(it, "skipped", { patch: { finishedAt: Date.now() }, message: "Nothing left to triage" });
+      store.transitionIteration(it, "skipped", { patch: { finishedAt: Date.now() }, message: resolved.length > 0 ? ALL_RESOLVED : "Nothing left to triage" });
       return;
     }
     const verdicts = await pipeline.triage(it, rows, signal);

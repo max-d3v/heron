@@ -276,6 +276,8 @@ export interface Feedback extends Omit<ObservedFeedback, "heronReply"> {
   status: FeedbackStatus;
   handledAt: number | null;
   observedAt: number;
+  /** Handled because its inline thread was resolved on GitHub (§15.3); unresolving it brings the comment back. */
+  setAsideResolved: boolean;
 }
 
 /** One numbered entry of an iteration's prompt: an inline thread, a review body or a conversation comment. */
@@ -393,6 +395,8 @@ export const ACTIVITY_KINDS = [
   "review.posted",
   "feedback.observed",
   "feedback.triaged",
+  "feedback.resolved",
+  "feedback.unresolved",
   "iteration.created",
   "iteration.state",
   "iteration.retry",

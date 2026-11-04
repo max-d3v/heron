@@ -233,4 +233,7 @@ export const MIGRATIONS: readonly string[] = [
     WHERE EXISTS (SELECT 1 FROM settings WHERE key = 'dryRun' AND value_json = 'true');
   DELETE FROM settings WHERE key = 'dryRun';
   `,
+  /* 8: comments in an inline thread resolved on GitHub are set aside (handled), and come back if it's unresolved */ `
+  ALTER TABLE feedback ADD COLUMN set_aside_resolved INTEGER NOT NULL DEFAULT 0;
+  `,
 ];

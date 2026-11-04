@@ -223,6 +223,7 @@ function toFeedback(r: Row): Feedback {
     status: r.status as FeedbackStatus,
     handledAt: num(r.handled_at),
     observedAt: Number(r.observed_at),
+    setAsideResolved: bool(r.set_aside_resolved),
   };
 }
 
@@ -339,6 +340,7 @@ export interface FeedbackPatch {
   iterationId?: number | null;
   status?: FeedbackStatus;
   handledAt?: number | null;
+  setAsideResolved?: boolean;
 }
 
 const FEEDBACK_COLUMNS: Record<keyof FeedbackPatch, string> = {
@@ -347,6 +349,7 @@ const FEEDBACK_COLUMNS: Record<keyof FeedbackPatch, string> = {
   iterationId: "iteration_id",
   status: "status",
   handledAt: "handled_at",
+  setAsideResolved: "set_aside_resolved",
 };
 
 export interface NewActivity {
@@ -978,7 +981,7 @@ export class HeronDb {
     for (const [key, value] of Object.entries(patch) as [keyof FeedbackPatch, unknown][]) {
       if (value === undefined) continue;
       sets.push(`${FEEDBACK_COLUMNS[key]} = ?`);
-      values.push(value);
+      values.push(typeof value === "boolean" ? (value ? 1 : 0) : value);
     }
     if (sets.length === 0) return;
     const stmt = this.sql.prepare(`UPDATE feedback SET ${sets.join(", ")} WHERE id = ?`);

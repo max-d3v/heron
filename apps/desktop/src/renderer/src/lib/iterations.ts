@@ -60,10 +60,11 @@ export function isFinishedIteration(it: IterationSummary): boolean {
 
 /**
  * The iteration the tab shows by default: the newest one that ran the agent or is queued to
- * (batches still being triaged or waiting show in the Feedback section; skipped ones never ran).
- * Once the PR is closed, the last one pushed: closing cancels whatever was still going.
+ * (batches still being triaged or waiting show in the Feedback section; skipped ones never ran,
+ * even those that started and found every thread resolved). Once the PR is closed, the last one
+ * pushed: closing cancels whatever was still going.
  */
 export function defaultIteration(its: IterationSummary[], open: boolean): IterationSummary | null {
   if (!open) return its.find((i) => i.state === "pushed") ?? null;
-  return its.find((i) => i.startedAt !== null || i.state === "queued") ?? null;
+  return its.find((i) => i.state !== "skipped" && (i.startedAt !== null || i.state === "queued")) ?? null;
 }
