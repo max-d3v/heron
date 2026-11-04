@@ -1,0 +1,81 @@
+# Builds the macOS and Windows installers (SPEC §13, §17.9). Run by hand, it keeps them as workflow
+# artifacts. On a v* tag it also publishes them to a GitHub release under fixed names, so the README's
+# releases/latest/download/... links always get the newest build.
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest # Apple silicon
+            script: dist
+            artifact: heron-macos-dmg
+            path: apps/desktop/dist/*.dmg
+          - os: windows-latest
+            script: dist:win
+            artifact: heron-windows-installer
+            path: apps/desktop/dist/*.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # The app reports the version in package.json, so a tag that doesn't match would ship a mislabeled build.
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version="v$(node -p "require('./apps/desktop/package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match apps/desktop/package.json ($version). Bump the version, then tag."
+            exit 1
+          fi
+      # Uses the pnpm version in package.json's packageManager.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm ${{ matrix.script }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Fixed names, so releases/latest/download/<name> always points at the newest build.
+          cp artifacts/heron-macos-dmg/*.dmg Heron-mac-arm64.dmg
+          cp artifacts/heron-windows-installer/*.exe Heron-windows-x64-setup.exe
+          cat > notes.md <<'NOTES'
+          **macOS** (Apple silicon): open the `.dmg` and drag Heron to Applications. Heron isn't notarized yet, so macOS blocks the first open: click Done, then System Settings → Privacy & Security → Open Anyway.
+
+          **Windows** 10 or 11 (x64): run the installer. It installs for your user only, with no admin prompt. It's unsigned, so SmartScreen warns the first time: More info → Run anyway.
+
+          Heron needs `git`, `gh` and `claude` installed and logged in. On launch it checks all three and shows how to fix anything missing. See the [README](https://github.com/${{ github.repository }}#get-started).
+          NOTES
+          gh release create "$GITHUB_REF_NAME" Heron-mac-arm64.dmg Heron-windows-x64-setup.exe \
+            --repo "$GITHUB_REPOSITORY" --title "Heron $GITHUB_REF_NAME" --notes-file notes.md --generate-notes
