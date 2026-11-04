@@ -400,7 +400,14 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
 - **Detection:** when the poller sees an eligible PR's `updated_at` change, fetch its conversation and record new comments in `feedback`.
 - **No backfill exception:** existing PRs and comments follow the same rules as new ones. Outdated inline comments are included; the agent checks them against the current code.
 - **Debounce:** a batch starts `iterationDebounce` after the newest unhandled comment. Each new comment resets it.
-- **Handled:** a comment is handled once triage marks it `no-change`, or once it was part of an iteration that ended `pushed`, `no_changes`, `discarded` or `uncommitted`. Handled comments are never triaged or sent again. A new reply in a thread makes that thread unhandled again, and the whole thread is sent.
+- **Handled:** a comment is handled once triage marks it `no-change`, once it was part of an iteration that ended `pushed`, `no_changes`, `discarded` or `uncommitted`, or once its inline thread is resolved on GitHub (below). Handled comments are never triaged or sent again. A new reply in a thread makes that thread unhandled again (unless the thread is resolved), and the whole thread is sent.
+- **Resolved threads:** an inline thread resolved on GitHub (GraphQL `isResolved`; by anyone, Heron included) is done. Its unhandled comments are **set aside**: handled, flagged `set_aside_resolved`, and out of any batch, so they never reach triage or the agent and never show in the Feedback section. GitHub isn't touched. Review bodies and conversation comments can't be resolved, and hidden (minimized) comments still count.
+  - **Resolved always wins**, new replies included: GitHub doesn't say when a thread was resolved, so a reply can't be told apart from what came before. A reviewer who disagrees in a thread Heron resolved (§15.6) has to **Unresolve** it.
+  - **Checked** at each comment sync, at triage (before the Haiku call), and before a run (§15.5). The sync sets aside comments that no batch holds or that a batch still waiting holds (`debouncing`, `awaiting_start`, `held`); a waiting batch left with nothing ends `skipped`. Batches in triage, running or `ready` are left to the later checks, and so is a Re-run, even while `held` (§15.5).
+  - **Unresolve:** at the next sync, comments set aside for a thread that's open again come back unhandled and untriaged, like new comments, and start a batch. Heron only re-reads a PR's comments when its `updated_at` moves, so that may wait for the next comment on the PR.
+  - A thread is matched by its first comment's id; one GitHub doesn't list that way (its first comment was deleted) counts as open.
+  - Activity notes each set-aside ("Set aside 2 resolved threads") and each return. A live batch stops counting threads set aside after its triage, so "N of M to change" covers only what it ran on. A finished batch (failed, cancelled, …) keeps its set-aside comments and its counts, so a Re-run of it takes them back.
+  - If the thread lookup fails, the step fails like any GitHub call there: the sync retries, triage and the run go through their retries (§6.3), and a limit or login problem pauses the queue.
 
 ### 15.4 Triage
 - One Agent SDK call: Haiku, effort `low`, no tools, one turn, structured output. It runs in every mode and doesn't take a parallel-run slot.
@@ -408,9 +415,11 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
 - **Output:** `{ verdicts: [{ id, verdict: "change" | "no-change", reason }] }`. `no-change` covers questions, praise, acks and things already done.
 - Triage only sets aside comments there's nothing to do for. It doesn't judge whether a finding is right; the agent does.
 - Every `change` comment goes to the agent. There's no per-comment picking and no override.
+- Threads resolved on GitHub since the last sync are set aside first (§15.3) and never sent to Haiku.
 - Nothing to change → the batch ends `skipped`.
 
 ### 15.5 Agent run
+- **Resolved check:** each time a run starts at `preparing`, before checkout and setup, the batch's threads resolved on GitHub since triage (or since a stale requeue skipped it) are set aside (§15.3). If none are left, the iteration ends `skipped` ("Every thread left was resolved on GitHub"). A **Re-run** skips this check, and so does its requeue when it goes stale: you asked for those comments by hand. A Re-run also takes back comments of its iteration set aside since.
 - **Worktree mode** (default): each iteration gets its own worktree in `Application Support/Heron/worktrees/iterations/<owner>/<name>/<n>/<id>`, independent of the review worktree. A later iteration never resets it, so its session can be continued there (§15.9); it's removed when the PR closes or merges. The run checks out the PR head (a retry resets the worktree and runs `clean -ffdx`), then the full `setupCommand` if set. Setup failure → `failed` with its output, no retry. Setup time counts toward the timeout.
 - **Local checkout mode** (`useLocalCheckout` on): the checkout must be on the PR's head branch, have a clean working tree, and have `HEAD` = the PR's `headSha`. If any check fails → `failed` with the reason. No setup command runs. A failed iteration in this mode offers **Re-run in a worktree**: the re-run (and its re-run if it goes stale) uses Heron's worktree and the setup command, leaving the local checkout alone; the repo setting doesn't change.
 - **Context files** go in `Application Support/Heron/iterations/<id>/`, outside the checkout in both modes: `pr.json`, `pr.diff`, `pr-comments.json`, `feedback.json`.
@@ -434,7 +443,7 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
 - **Push:** `git push https://github.com/<owner>/<name> <sha>:refs/heads/<headRef>` with the `gh` token (§9), never forced, in both modes. Auto-push on → right away. Off → `ready` until **Push**, **Discard** or, in local checkout mode, **Uncommit** (`git reset --soft` to the PR head on the local checkout, so the changes stay staged for you to finish; Heron pushes and replies nothing).
 - **Head moved** (a non-fast-forward rejection, or a new `headSha` while in flight or `ready`) → `stale`. A new iteration with the same comments goes straight to `queued`, with no triage and no click.
 - **403 / branch protection** → `failed`, no retry.
-- **Replies** (`iterationReply` on): on each addressed inline thread, `Addressed in abc1234 — <note>` with the hidden marker, then resolve the thread (GraphQL `resolveReviewThread`; a thread that's already resolved is left alone). On each `not_addressed` inline thread, `Not addressed — <note>` with the marker, and the thread stays open: a reply from the reviewer reopens it (§15.3) and the agent sees its earlier reason in the thread. Not-addressed replies go out with the addressed ones after the push, or right away when there's no commit; a discarded result posts nothing. An item the agent left out of its output gets no reply. Look for the marker first, so a retry never posts twice. A reply or resolve GitHub refuses (deleted comment, no permission) is logged in Activity and doesn't fail the iteration. No reply for review bodies or conversation comments; those notes stay in the app.
+- **Replies** (`iterationReply` on): on each addressed inline thread, `Addressed in abc1234 — <note>` with the hidden marker, then resolve the thread (GraphQL `resolveReviewThread`; a thread that's already resolved is left alone). A reply in a thread Heron resolved is set aside like any reply in a resolved thread, until someone unresolves it (§15.3). On each `not_addressed` inline thread, `Not addressed — <note>` with the marker, and the thread stays open: a reply from the reviewer reopens it (§15.3) and the agent sees its earlier reason in the thread. Not-addressed replies go out with the addressed ones after the push, or right away when there's no commit; a discarded result posts nothing. An item the agent left out of its output gets no reply. Look for the marker first, so a retry never posts twice. A reply or resolve GitHub refuses (deleted comment, no permission) is logged in Activity and doesn't fail the iteration. No reply for review bodies or conversation comments; those notes stay in the app.
 - **Loop cap:** Heron records each SHA it pushes. After `loopCap` Heron pushes in a row with no other push, the PR behaves as manual start until someone else pushes, and the Iteration tab says so. If the PR isn't in the repo's review scope, Heron never reviews the iteration commit, so the loop ends after one push anyway.
 
 ### 15.7 States
@@ -443,6 +452,7 @@ debouncing → triaging ─┬→ skipped                    nothing to change
                        ├→ awaiting_start → queued    manual start or loop cap; you click Iterate
                        ├→ held → queued              another iteration on the PR is in flight or ready
                        └→ queued
+awaiting_start, held, preparing → skipped             every thread left was resolved on GitHub (§15.3, §15.5)
 queued → preparing → running → committing ─┬→ no_changes
                                             ├→ replying → no_changes        no commit, but threads to answer
                                             ├→ ready ─┬→ pushing (Push)
@@ -464,7 +474,8 @@ iterations(id, pr_id, state, trigger_kind, head_sha, run_after, attempt, retry_s
            profile_snapshot_json, resolved_model, transcript_path, cwd_kind, items_json, output_json, raw_output,
            commit_sha, triage_total, triage_change, merged_into, usage_json, started_at, finished_at, ...)
 feedback(id, pr_id, github_id, kind, thread_root_id, author, body, url, path, line, outdated, diff_hunk, review_state,
-         created_at, verdict, reason, iteration_id, status /*unhandled|handled|ignored*/, handled_at, observed_at)
+         created_at, verdict, reason, iteration_id, status /*unhandled|handled|ignored*/, handled_at, observed_at,
+         set_aside_resolved /*handled because its thread is resolved on GitHub; unresolving brings it back*/)
 activity   + iteration_id; kinds feedback.* and iteration.*
 ```
 A batch that's triaged while another one waits (`held` or `awaiting_start`) is merged into it: its comments move over and it ends `cancelled` with `merged_into` set.

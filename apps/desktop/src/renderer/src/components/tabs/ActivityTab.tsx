@@ -1,6 +1,7 @@
 import type { ActivityDto } from "@heron/rpc";
 import {
   Ban,
+  CheckCheck,
   CircleCheck,
   CircleDot,
   CircleX,
@@ -17,6 +18,7 @@ import {
   RefreshCw,
   RotateCw,
   TriangleAlert,
+  Undo2,
 } from "lucide-react";
 import { useMemo } from "react";
 import { cn } from "../../lib/cn";
@@ -65,6 +67,10 @@ function icon(a: ActivityDto) {
       return <MessageSquareText className={cls} />;
     case "feedback.triaged":
       return <ListChecks className={cls} />;
+    case "feedback.resolved":
+      return <CheckCheck className={cls} />;
+    case "feedback.unresolved":
+      return <Undo2 className={cls} />;
     case "iteration.created":
       return <Clock className={cn(cls, "text-warn")} />;
     case "iteration.retry":

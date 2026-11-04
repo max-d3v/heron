@@ -28,9 +28,9 @@ import {
 } from "@heron/core";
 import type { HeronDb, IterationPatch } from "@heron/db";
 import { GitError, type GitClient } from "@heron/git";
-import type { GitHubClient } from "@heron/github";
+import type { GitHubClient, ReviewThreads } from "@heron/github";
 import { runIteration, runSetupCommand, runTriage, type PrContext, type TriageItem } from "@heron/harness";
-import { groupFeedback, threadForPrompt } from "./feedback.ts";
+import { ALL_RESOLVED, groupFeedback, inResolvedThreads, setAsideResolved, threadForPrompt, threadsFor } from "./feedback.ts";
 import type { Paths } from "./paths.ts";
 import { PrClosedError } from "./pipeline.ts";
 import type { Store } from "./store.ts";
@@ -143,10 +143,12 @@ export class IterationPipeline {
     while (it && isIterationInFlight(it.state)) {
       if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason));
       const { pr, repo } = this.context(it);
-      let step: { patch: IterationPatch; to: IterationState };
+      let step: { patch: IterationPatch; to: IterationState; message?: string };
       switch (it.state) {
         case "preparing":
-          step = { patch: await this.prepare(it, snap, pr, repo, signal, deadline), to: "running" };
+          step = (await this.dropResolved(it, pr, repo))
+            ? { patch: {}, to: "skipped", message: ALL_RESOLVED }
+            : { patch: await this.prepare(it, snap, pr, repo, signal, deadline), to: "running" };
           break;
         case "running":
           step = { patch: await this.run(it, snap, pr, repo, signal, deadline), to: "committing" };
@@ -161,9 +163,10 @@ export class IterationPipeline {
           step = { patch: await this.reply(it, snap, pr, repo), to: it.commitSha ? "pushed" : "no_changes" };
           break;
       }
-      const settled = step.to === "ready" || step.to === "no_changes" || step.to === "pushed";
+      const settled = step.to === "ready" || step.to === "no_changes" || step.to === "pushed" || step.to === "skipped";
       it = store.transitionIteration(it, step.to, {
         patch: { ...step.patch, ...(settled && it.finishedAt === null ? { finishedAt: Date.now() } : {}) },
+        message: step.message,
         data: step.patch.commitSha ? { commitSha: step.patch.commitSha } : undefined,
       });
     }
@@ -208,6 +211,20 @@ export class IterationPipeline {
   }
 
   // ── preparing ─────────────────────────────────────────────────────────────
+
+  /**
+   * Before checkout and setup (§15.5): set aside the batch's threads resolved on GitHub since
+   * triage, or since a stale requeue skipped it. True when nothing is left to run. A Re-run's
+   * comments were asked for by hand, so it runs on them whatever their state.
+   */
+  private async dropResolved(it: Iteration, pr: Pr, repo: Repo): Promise<boolean> {
+    if (it.trigger === "rerun") return false;
+    const { db, store, github } = this.d;
+    const rows = db.listFeedbackForIteration(it.id).filter((f) => f.status === "unhandled" && f.verdict === "change");
+    const resolved = inResolvedThreads(rows, await threadsFor(github, repo, pr, rows));
+    setAsideResolved(db, store, pr.id, resolved, it.id);
+    return resolved.length > 0 && resolved.length === rows.length;
+  }
 
   private async prepare(it: Iteration, snap: IterationSnapshot, pr: Pr, repo: Repo, signal: AbortSignal, deadline: number): Promise<IterationPatch> {
     const { db, store, github, git, paths } = this.d;
@@ -529,7 +546,7 @@ export class IterationPipeline {
       if (classifyError(err) !== "permanent") throw err;
       store.activity({ prId: it.prId, reviewId: null, iterationId: it.id, kind: "iteration.error", message: `Couldn't resolve a thread: ${errorMessage(err)}` });
     };
-    let threads: Map<number, { id: string; resolved: boolean }>;
+    let threads: ReviewThreads;
     try {
       threads = await github.listReviewThreads(repo.owner, repo.name, pr.number);
     } catch (err) {

@@ -4,6 +4,7 @@ import type { IterationState, IterationStepState } from "./types.ts";
 //                        ├→ awaiting_start → queued    manual mode or loop cap; you click Iterate
 //                        ├→ held → queued              another iteration occupies the PR
 //                        └→ queued
+// awaiting_start, held, preparing → skipped            every thread left was resolved on GitHub
 // queued → preparing → running → committing ─┬→ no_changes
 //                                             ├→ replying → no_changes       no commit, but threads to answer
 //                                             ├→ ready ─┬→ pushing (Push)
@@ -25,10 +26,10 @@ const AGENT_STEPS: ReadonlySet<IterationStepState> = new Set(["preparing", "runn
 const FORWARD: Record<IterationState, readonly IterationState[]> = {
   debouncing: ["triaging"],
   triaging: ["skipped", "awaiting_start", "held", "queued", "debouncing"],
-  awaiting_start: ["queued", "held"],
-  held: ["queued"],
+  awaiting_start: ["queued", "held", "skipped"],
+  held: ["queued", "skipped"],
   queued: ["preparing", "committing", "pushing", "replying"],
-  preparing: ["running", "queued"],
+  preparing: ["running", "queued", "skipped"],
   // Back to preparing: an interrupted run starts over from a clean checkout.
   running: ["committing", "preparing", "queued"],
   committing: ["no_changes", "replying", "ready", "pushing", "queued"],
