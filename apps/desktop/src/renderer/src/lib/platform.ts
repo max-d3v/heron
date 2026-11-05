@@ -6,5 +6,19 @@ export const isWindows = navigator.userAgent.includes("Windows");
 
 /** The few labels that differ on Windows (§17.8). */
 export const labels = isWindows
-  ? { settingsShortcut: "Ctrl+,", showInFileManager: "Show in Explorer", fileManager: "Explorer", thisComputer: "this computer" }
-  : { settingsShortcut: "⌘,", showInFileManager: "Show in Finder", fileManager: "Finder", thisComputer: "this Mac" };
+  ? {
+      settingsShortcut: "Ctrl+,",
+      showInFileManager: "Show in Explorer",
+      fileManager: "Explorer",
+      thisComputer: "this computer",
+      installUpdate: "Restart to Update",
+      installUpdateHint: "Restart now, or it installs the next time you quit Heron.",
+    }
+  : {
+      settingsShortcut: "⌘,",
+      showInFileManager: "Show in Finder",
+      fileManager: "Finder",
+      thisComputer: "this Mac",
+      installUpdate: "Install Update",
+      installUpdateHint: "Install Update opens it and quits Heron: drag Heron to Applications and choose Replace.",
+    };

@@ -1,6 +1,6 @@
 import { EventPublisher } from "@orpc/server";
 import type { Activity, AgentStep, QueueStatus } from "@heron/core";
-import type { AppEvent } from "@heron/rpc";
+import type { AppEvent, UpdateStatus } from "@heron/rpc";
 
 export interface StepEvent {
   id: number;
@@ -20,6 +20,8 @@ export interface BusEvents {
   queue: QueueStatus;
   /** Navigation requests (tray, notifications, menu) and config changes, for the renderer. */
   app: AppEvent;
+  /** Heron's own update, from the Updater (§13.1). */
+  update: UpdateStatus;
 }
 
 export type Bus = EventPublisher<BusEvents>;

@@ -24,6 +24,7 @@ import { Scheduler } from "./scheduler.ts";
 import { SkillService } from "./skills.ts";
 import { Store } from "./store.ts";
 import { HeronTray } from "./tray.ts";
+import { Updater } from "./updater.ts";
 import { createMainWindow, installCsp } from "./window.ts";
 
 app.setName("Heron");
@@ -97,6 +98,8 @@ async function main(): Promise<void> {
 
   let mainWindow: BrowserWindow | null = null;
   let quitConfirmed = false;
+  /** Restart to Update (Windows): the quit ends by starting the installer, which reopens Heron. */
+  let installOnQuit = false;
   let queueStatus: QueueStatus | null = null;
   const showWindow = () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -231,6 +234,15 @@ async function main(): Promise<void> {
     return settings();
   };
 
+  const updater = new Updater({
+    bus,
+    dir: paths.updates,
+    quit: (install) => {
+      installOnQuit = install;
+      app.quit();
+    },
+  });
+
   // oRPC over a MessagePort: the renderer creates the channel and the preload forwards one end here.
   const handler = new RPCHandler(
     createRouter({
@@ -243,6 +255,7 @@ async function main(): Promise<void> {
       github,
       git,
       skills,
+      updater,
       paths,
       version,
       env: () => env,
@@ -271,10 +284,18 @@ async function main(): Promise<void> {
   });
 
   installCsp();
-  installAppMenu(() => {
-    showWindow();
-    bus.publish("app", { kind: "openSettings" });
-  });
+  installAppMenu(
+    () => {
+      showWindow();
+      bus.publish("app", { kind: "openSettings" });
+    },
+    () => {
+      // Settings → General shows how the check went.
+      showWindow();
+      bus.publish("app", { kind: "openSettings", tab: "general" });
+      void updater.check();
+    },
+  );
 
   const tray = new HeronTray(resourcesDir, {
     open: showWindow,
@@ -285,6 +306,9 @@ async function main(): Promise<void> {
     },
     pause: () => scheduler.pauseManual(true),
     resume: () => scheduler.pauseManual(false),
+    installUpdate: () => {
+      updater.install().catch((err: unknown) => dialog.showErrorBox("Couldn't install the update", err instanceof Error ? err.message : String(err)));
+    },
     quit: () => app.quit(),
   });
   bus.subscribe("queue", (status) => {
@@ -292,6 +316,8 @@ async function main(): Promise<void> {
     tray.update(status);
     if (mainWindow) setRunningBadge(mainWindow, status.running, resourcesDir);
   });
+  tray.setUpdate(updater.current);
+  bus.subscribe("update", (status) => tray.setUpdate(status));
 
   if (settings().launchAtLogin !== loginItem.get()) loginItem.set(settings().launchAtLogin);
 
@@ -300,6 +326,7 @@ async function main(): Promise<void> {
   await scheduler.start();
   await iterations.start();
   poller.start();
+  updater.start();
   void doctor();
 
   // While something is broken (logged out, missing tool), re-check every minute.
@@ -330,7 +357,10 @@ async function main(): Promise<void> {
           message: `${n} run${n === 1 ? "" : "s"} in progress. Quit anyway?`,
           detail: "They stop now and pick up from the start of their current step the next time Heron opens.",
         });
-        if (response !== 0) return;
+        if (response !== 0) {
+          installOnQuit = false;
+          return;
+        }
       }
       quitConfirmed = true;
       // Everything that writes to the database stops before it closes: a late write
@@ -343,6 +373,8 @@ async function main(): Promise<void> {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
       // Still busy after the wait: the database closes with the process (SQLite replays its WAL on the next open).
       if (idle) db.close();
+      // The installer waits for Heron to exit. If it didn't start, reopen rather than leave Heron closed.
+      if (installOnQuit && !updater.runInstaller()) app.relaunch();
       app.quit();
     })();
   });

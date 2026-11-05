@@ -433,9 +433,25 @@ export const doctorReport = z.object({
   viewer: z.object({ login: z.string(), avatarUrl: z.string().nullable() }).nullable(),
 });
 
+/**
+ * Heron's own updates (§13.1). Both platforms download a newer release in the background. Windows
+ * installs it on quit or Restart to Update; macOS opens the downloaded .dmg on Install Update.
+ */
+export const updateStatus = z.discriminatedUnion("state", [
+  /** A development build: only installed copies update. */
+  z.object({ state: z.literal("off") }),
+  /** Up to date as of `checkedAt`; null before the first check. */
+  z.object({ state: z.literal("idle"), checkedAt: z.number().nullable() }),
+  z.object({ state: z.literal("checking") }),
+  z.object({ state: z.literal("downloading"), version: z.string(), percent: z.number() }),
+  /** Downloaded and waiting to be installed. */
+  z.object({ state: z.literal("ready"), version: z.string() }),
+  z.object({ state: z.literal("error"), message: z.string(), checkedAt: z.number() }),
+]);
+
 export const appEvent = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("openPr"), prId: id, tab: z.enum(["iteration"]).optional() }),
-  z.object({ kind: z.literal("openSettings") }),
+  z.object({ kind: z.literal("openSettings"), tab: z.enum(["general"]).optional() }),
   z.object({ kind: z.literal("config"), what: z.enum(["repos", "profiles", "skills", "settings"]) }),
 ]);
 
@@ -451,6 +467,13 @@ export const contract = {
     openExternal: oc.input(z.object({ url: z.url() })),
     revealPath: oc.input(z.object({ path: z.string() })),
     events: oc.output(eventIterator(appEvent)),
+  },
+  updates: {
+    status: oc.output(eventIterator(updateStatus)),
+    /** Check GitHub now. Settles when the check (and any download it starts) does; the status stream reports progress. */
+    check: oc,
+    /** Windows: quit, install and reopen. macOS: open the downloaded .dmg and quit, so the new version can replace the old one. */
+    install: oc,
   },
   doctor: {
     get: oc.output(doctorReport.nullable()),
@@ -570,3 +593,4 @@ export type DoctorReport = z.infer<typeof doctorReport>;
 export type DoctorFix = z.infer<typeof doctorFix>;
 export type DoctorCheck = z.infer<typeof doctorCheck>;
 export type AppEvent = z.infer<typeof appEvent>;
+export type UpdateStatus = z.infer<typeof updateStatus>;

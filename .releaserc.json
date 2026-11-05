@@ -9,9 +9,13 @@
       {
         "assets": [
           { "path": "artifacts/heron-macos-dmg/*.dmg", "name": "Heron-mac-arm64.dmg", "label": "Heron for macOS (Apple silicon)" },
-          { "path": "artifacts/heron-windows-installer/*.exe", "name": "Heron-windows-x64-setup.exe", "label": "Heron for Windows (x64)" }
+          { "path": "artifacts/heron-windows-installer/*.exe", "name": "Heron-windows-x64-setup.exe", "label": "Heron for Windows (x64)" },
+          { "path": "artifacts/heron-macos-dmg/*.dmg.blockmap", "name": "Heron-mac-arm64.dmg.blockmap" },
+          { "path": "artifacts/heron-macos-dmg/latest-mac.yml", "name": "latest-mac.yml" },
+          { "path": "artifacts/heron-windows-installer/*.exe.blockmap", "name": "Heron-windows-x64-setup.exe.blockmap" },
+          { "path": "artifacts/heron-windows-installer/latest.yml", "name": "latest.yml" }
         ],
-        "releaseBodyTemplate": "**macOS** (Apple silicon): open the `.dmg` and drag Heron to Applications. Heron isn't notarized yet, so macOS blocks the first open: click Done, then System Settings → Privacy & Security → Open Anyway.\n\n**Windows** 10 or 11 (x64): run the installer. It installs for your user only, with no admin prompt. It's unsigned, so SmartScreen warns the first time: More info → Run anyway.\n\nHeron needs `git`, `gh` and `claude` installed and logged in. On launch it checks all three and shows how to fix anything missing. See the [README](https://github.com/max-d3v/heron#get-started).\n\n<%= nextRelease.notes %>",
+        "releaseBodyTemplate": "**macOS** (Apple silicon): open the `.dmg` and drag Heron to Applications. Heron isn't notarized yet, so macOS blocks the first open: click Done, then System Settings → Privacy & Security → Open Anyway.\n\n**Windows** 10 or 11 (x64): run the installer. It installs for your user only, with no admin prompt. It's unsigned, so SmartScreen warns the first time: More info → Run anyway.\n\nHeron needs `git`, `gh` and `claude` installed and logged in. On launch it checks all three and shows how to fix anything missing. Once installed, Heron updates itself: Windows installs new versions when you quit or restart Heron, and macOS downloads them and opens the installer when you choose Install update. See the [README](https://github.com/max-d3v/heron#get-started).\n\n<%= nextRelease.notes %>",
         "successComment": false,
         "failComment": false,
         "releasedLabels": false

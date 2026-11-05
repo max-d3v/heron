@@ -17,6 +17,14 @@ extraResources:
       - "skills/**"
 asarUnpack:
   - node_modules/better-sqlite3/**
+# Updates (SPEC §13.1): the build writes app-update.yml into the app and an update feed
+# (latest.yml, latest-mac.yml) next to each installer. The Release workflow uploads the feeds with
+# the installers, so the names below must stay the ones .releaserc.json uploads.
+publish:
+  provider: github
+  owner: max-d3v
+  repo: heron
+  releaseType: release
 # better-sqlite3 ships N-API prebuilds that load in Electron as-is.
 npmRebuild: false
 mac:
@@ -34,6 +42,8 @@ mac:
     NSUserNotificationAlertStyle: alert
 dmg:
   title: Heron
+  # Fixed, so the release asset and the file latest-mac.yml names are the same.
+  artifactName: Heron-mac-arm64.${ext}
 # Built on Windows only, by .github/workflows/release.yml. v1 is unsigned (personal use):
 # SmartScreen warns on first run (More info → Run anyway).
 win:
@@ -51,3 +61,5 @@ win:
 nsis:
   oneClick: true
   perMachine: false
+  # Fixed, so the release asset and the file latest.yml names are the same.
+  artifactName: Heron-windows-x64-setup.${ext}

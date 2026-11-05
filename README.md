@@ -47,6 +47,13 @@ On Windows:
 
 **Windows** 10 22H2 or 11, x64 (ARM PCs run it under emulation): [download the installer](https://github.com/max-d3v/heron/releases/latest/download/Heron-windows-x64-setup.exe) and run it. It installs for your user only, with no admin prompt. It's unsigned, so SmartScreen warns the first time: More info → Run anyway.
 
+**Updates:** Heron checks for a new version every few hours and downloads it in the background.
+
+- **Windows:** the update installs the next time you quit Heron. To install it now, choose **Restart to Update** at the bottom of the sidebar or in the tray menu.
+- **macOS:** choose **Install Update** at the bottom of the sidebar or in the menu bar menu. Heron opens the new `.dmg` and quits. Drag Heron to Applications and choose **Replace**. There's no Open Anyway step this time.
+
+Settings → General shows the update status and has **Check for Updates**. A copy installed before Heron could update itself needs one more manual download.
+
 Older versions are on the [Releases page](https://github.com/max-d3v/heron/releases). To build the app yourself, see [Develop](#develop).
 
 ### 3. Add a repository
@@ -142,7 +149,7 @@ Set `HERON_DATA_DIR=/some/dir` to run against a separate copy of the data.
 
 ### Build the installers
 
-- **macOS** (Apple silicon): `pnpm dist` → `apps/desktop/dist/Heron-<version>-arm64.dmg`.
+- **macOS** (Apple silicon): `pnpm dist` → `apps/desktop/dist/Heron-mac-arm64.dmg`, plus its update feed `latest-mac.yml`.
 - **Windows**: built on Windows by GitHub Actions. Run the **Release** workflow (Actions → Release → Run workflow) and download `heron-windows-installer` from the run's artifacts. On a Windows machine you can also run `pnpm dist:win`.
 
 ### Releases
@@ -154,7 +161,7 @@ Releases are automatic, with [semantic-release](https://semantic-release.gitbook
 - `!` after the type (`feat!:`) or a `BREAKING CHANGE:` footer → major (**2**.0.0)
 - anything else (`docs:`, `refactor:`, `build:`, `chore:`, merge commits) → no release
 
-When there's a new version, it builds both installers with it, tags the commit `v<version>` and publishes a GitHub release with the installers and the changes. The download buttons always point to the newest release.
+When there's a new version, it builds both installers with it, tags the commit `v<version>` and publishes a GitHub release with the installers, their update feeds and the changes. The download buttons always point to the newest release, and installed copies pick it up at their next check.
 
 The version lives in the tags, not in the code: `apps/desktop/package.json` stays at `0.0.0-development`, and CI stamps the release version into each build. With squash merges, the PR title becomes the commit title, so it needs the same format.
 

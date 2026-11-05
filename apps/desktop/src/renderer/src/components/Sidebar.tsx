@@ -9,6 +9,7 @@ import { client } from "../lib/rpc";
 import { isListed } from "../lib/visibility";
 import { Avatar } from "./Avatar";
 import { PrIcon, prStatusLabel } from "./StatusDot";
+import { UpdateButton } from "./Update";
 import { Empty, IconButton, Select, Tooltip } from "./ui";
 
 export function Sidebar({
@@ -100,9 +101,12 @@ export function Sidebar({
       </div>
 
       <div className="flex h-[38px] shrink-0 items-center justify-between border-t border-line px-2">
-        <IconButton label={`Settings (${labels.settingsShortcut})`} onClick={onOpenSettings}>
-          <Settings className="size-[15px]" />
-        </IconButton>
+        <div className="flex items-center gap-1.5">
+          <IconButton label={`Settings (${labels.settingsShortcut})`} onClick={onOpenSettings}>
+            <Settings className="size-[15px]" />
+          </IconButton>
+          <UpdateButton />
+        </div>
         {hiddenCount > 0 || showAll ? (
           <Tooltip content={showAll ? "Hide PRs outside each repo's scope" : `Show ${hiddenCount} open PRs outside each repo's scope`}>
             <button
