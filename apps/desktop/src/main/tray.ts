@@ -1,6 +1,7 @@
 import { Menu, Tray } from "electron";
 import type { QueueStatus } from "@heron/core";
-import { trayBehavior, trayIcons, type TrayIcons } from "./platform.ts";
+import type { UpdateStatus } from "@heron/rpc";
+import { trayBehavior, trayIcons, updateBehavior, type TrayIcons } from "./platform.ts";
 
 export interface TrayActions {
   open: () => void;
@@ -8,16 +9,21 @@ export interface TrayActions {
   openReady: () => void;
   pause: () => void;
   resume: () => void;
+  /** Install a downloaded update (§13.1). */
+  installUpdate: () => void;
   quit: () => void;
 }
 
 /**
  * Menu bar icon (the system tray on Windows, §17.8): status (idle / N running / paused + reason),
- * Open, Pause/Resume, Quit (§12). The counts are in the tooltip too, since only macOS shows a title.
+ * Open, Pause/Resume, Quit (§12), and Restart to Update / Install Update once one is downloaded (§13.1).
+ * The counts are in the tooltip too, since only macOS shows a title.
  */
 export class HeronTray {
   private readonly tray: Tray;
   private readonly icons: TrayIcons;
+  private status: QueueStatus | null = null;
+  private updateStatus: UpdateStatus = { state: "off" };
 
   constructor(
     resourcesDir: string,
@@ -28,10 +34,21 @@ export class HeronTray {
     this.tray.setToolTip("Heron");
     // Windows: a left click opens the window; the menu is on right-click.
     if (trayBehavior.openOnClick) this.tray.on("click", () => this.actions.open());
-    this.update(null);
+    this.render();
   }
 
   update(status: QueueStatus | null): void {
+    this.status = status;
+    this.render();
+  }
+
+  setUpdate(status: UpdateStatus): void {
+    this.updateStatus = status;
+    this.render();
+  }
+
+  private render(): void {
+    const status = this.status;
     const paused = status?.paused ?? false;
     const running = status?.running ?? 0;
     let line: string;
@@ -47,6 +64,7 @@ export class HeronTray {
     this.tray.setToolTip(`Heron: ${line}${ready > 0 ? ` · ${ready} ready to push` : ""}`);
 
     const manualPaused = status?.reasons.includes("manual") ?? false;
+    const update = this.updateStatus.state === "ready" ? this.updateStatus : null;
     this.tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: line, enabled: false },
@@ -55,6 +73,7 @@ export class HeronTray {
         { label: "Open Heron", click: this.actions.open },
         manualPaused ? { label: "Resume", click: this.actions.resume } : { label: "Pause All", click: this.actions.pause },
         { type: "separator" },
+        ...(update ? [{ label: `${updateBehavior.installLabel} (${update.version})`, click: this.actions.installUpdate }] : []),
         { label: "Quit Heron", accelerator: trayBehavior.quitAccelerator, click: this.actions.quit },
       ]),
     );

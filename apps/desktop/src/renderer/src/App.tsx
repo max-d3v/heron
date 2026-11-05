@@ -89,7 +89,7 @@ export function App() {
             setSelected(e.prId);
             setRequestedTab(e.tab ? { tab: e.tab, at: Date.now() } : null);
           } else if (e.kind === "openSettings") {
-            setSettingsTab((t) => t ?? "repos");
+            setSettingsTab((t) => e.tab ?? t ?? "repos");
           } else {
             void qc.invalidateQueries({ queryKey: orpc[e.what].key() });
           }

@@ -13,6 +13,8 @@ export function makePaths(root: string) {
     plugin: join(root, "plugin"),
     pluginSkills: join(root, "plugin", "skills"),
     ghConfig: join(root, "gh-config-empty"),
+    /** macOS: the newer release's .dmg, downloaded until it's installed (§13.1). */
+    updates: join(root, "updates"),
     cloneDir: (owner: string, name: string) => join(root, "repos", owner, name),
     worktreeDir: (owner: string, name: string, number: number) => join(root, "worktrees", owner, name, String(number)),
     transcript: (reviewId: number) => join(root, "transcripts", `${reviewId}.jsonl`),

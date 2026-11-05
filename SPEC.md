@@ -18,6 +18,7 @@ Audience for v1: **only me**. Every choice must still allow a **public** release
 - Durable pipeline: a persisted state machine with retries and crash/quit recovery.
 - **Iterations** (§15): an agent addresses review feedback on your own PRs, and Heron commits and pushes the result.
 - Menu bar icon (system tray on Windows), launch-at-login toggle.
+- Updates itself from GitHub Releases (§13.1).
 - macOS, and Windows 10/11 on x64 (§17).
 
 **Not in v1**
@@ -29,7 +30,7 @@ Audience for v1: **only me**. Every choice must still allow a **public** release
 - A full diff viewer for the PR (use "Open on GitHub"). The Iteration tab shows only its own commit's diff.
 - Running in the background after Quit.
 - Tests.
-- Signing, notarization, auto-update (planned for the public release).
+- Signing and notarization (planned for the public release). Until then, macOS updates aren't installed in place (§13.1).
 - Linux, and native arm64 Windows builds (§17.1).
 
 ---
@@ -321,7 +322,7 @@ oRPC over a `MessagePort` handed to the renderer through the preload script. Zod
 Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`, system font, follows light/dark mode. Tailwind + Radix, styled to look like macOS rather than a web dashboard. Windows keeps the same layout with Windows window chrome (§17.8).
 
 **Main window**
-- **Sidebar:** a flat list sorted by **latest review activity**. Each row: live review status, as a dot while there's work to come (not reviewed, waiting, queued, running with spinner, cancelled, superseded) and an icon for an outcome (posted: green speech bubble; no issues found: green check; dry run · not posted: green dashed speech bubble; failed: red cross), an iteration badge (§15.8), title, `repo#n`, author avatar, relative time. At the top: repo filter + search. At the bottom: ⚙ Settings. A newly arrived open PR takes the selection only when the selected PR is settled: closed or merged, or its current head reviewed with no issues and no iteration badge.
+- **Sidebar:** a flat list sorted by **latest review activity**. Each row: live review status, as a dot while there's work to come (not reviewed, waiting, queued, running with spinner, cancelled, superseded) and an icon for an outcome (posted: green speech bubble; no issues found: green check; dry run · not posted: green dashed speech bubble; failed: red cross), an iteration badge (§15.8), title, `repo#n`, author avatar, relative time. At the top: repo filter + search. At the bottom: ⚙ Settings, and Restart to Update (Windows) or Install Update (macOS) once an update is downloaded (§13.1). A newly arrived open PR takes the selection only when the selected PR is settled: closed or merged, or its current head reviewed with no issues and no iteration badge.
 - **Detail header:** title, `owner/repo#n`, author, `head → base`, short SHA. Buttons: Open on GitHub, Review now, Re-run.
 - **Tabs:**
   - **Review:** body (markdown), then inline comments grouped by file, each with nearby diff lines. No badges; it's all user-formatted markdown.
@@ -335,7 +336,7 @@ Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`,
 
 **First run / Doctor:** checks `git`, `gh` (installed and logged in), and `claude` (installed and logged in). A failed check shows a short note and one command (`fix`, `command`); the copy button copies only the command. The queue doesn't start until all are green. Windows adds two rows that warn but never block (§17.8).
 
-**Menu bar icon:** status (idle / N running / paused + reason, N ready to push). Menu: Open, Pause all / Resume, Quit.
+**Menu bar icon:** status (idle / N running / paused + reason, N ready to push). Menu: Open, Pause all / Resume, Restart to Update / Install Update (once one is downloaded, §13.1), Quit.
 
 **Lifecycle:** closing the window keeps the app running (Dock + menu bar; the system tray on Windows, §17.8). **Quit stops everything.** Launch-at-login toggle.
 
@@ -349,8 +350,16 @@ Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`,
 - **Public later:**
   - Apple Developer ID, signing and notarization in CI.
   - Windows code signing, so SmartScreen stops warning.
-  - `electron-updater` using GitHub Releases.
+  - macOS updates installed in place, once there's a Developer ID (§13.1).
   - **Check Anthropic's terms on third-party apps using Claude.ai subscription login**, which includes Agent SDK apps. If needed, add an API-key fallback for auth.
+
+### 13.1 Updates
+- **electron-updater**, GitHub provider (`publish` in `electron-builder.yml`). The build writes `app-update.yml` into the app, and next to each installer an update feed with the version, file name, size and sha512 (`latest.yml` for Windows, `latest-mac.yml` for macOS) and a `.blockmap`. The Release workflow uploads them with the installers (§17.9). The installers' `artifactName`s are the asset names, so the file a feed names is the file uploaded.
+- **When:** installed copies only (`app.isPackaged`); a development build reports `off`. The first check runs 30 seconds after launch, then every 4 hours, and on Check for Updates (Settings → General, and the app menu on macOS). A newer release downloads right away. Once one has downloaded, checks stop until the next launch.
+- **Windows:** electron-updater downloads the installer (only the changed blocks, when the blockmaps allow) and runs it silently when Heron quits. **Restart to Update** quits the usual way, confirming running runs, then starts the installer with `--force-run`, which reopens Heron; if it doesn't start, Heron relaunches as it was. Unsigned works: with no `publisherName` in `app-update.yml`, electron-updater skips the signature check, and a file the app downloads itself gets no SmartScreen prompt.
+- **macOS:** electron-updater installs through Squirrel.Mac, which only accepts an update that meets the running app's designated requirement. An ad-hoc signature's requirement is its own code hash, so no other build passes. Until there's a Developer ID (§13), Heron checks with electron-updater but downloads the `.dmg` itself, into `updates/` in its data folder, and checks it against the feed's sha512. **Install Update** opens the `.dmg` and quits; the user drags Heron to Applications and replaces the old copy. Heron writes the file itself, so it carries no quarantine flag, and the new copy opens without Open Anyway. The folder is cleared when a check finds Heron up to date.
+- **RPC:** `updates.status` streams `off`, `idle` (with when it last checked), `checking`, `downloading` (with percent), `ready` or `error`. Settings → General shows it under the version, with Check for Updates. `ready` also adds the install item to the sidebar's footer and the tray menu.
+- **First update:** a copy installed before this shipped has no updater; it needs one more manual download.
 
 ---
 
@@ -508,7 +517,7 @@ Heron also runs on Windows, for the same audience as v1 (only me) and with the s
 ### 17.1 Scope
 - Windows 10 22H2 and Windows 11, x64. ARM Windows runs the x64 build under emulation; a native arm64 build waits until someone needs it.
 - Everything in §1 works the same, including iterations and the setup command.
-- An unsigned per-user installer built in CI (§17.9). No auto-update, as on macOS (§13).
+- An unsigned per-user installer built in CI (§17.9). It updates itself (§13.1).
 - **Not in scope:** Linux, arm64 builds, code signing, Windows Server, a portable build.
 
 ### 17.2 Platform code
@@ -575,8 +584,8 @@ Heron also runs on Windows, for the same audience as v1 (only me) and with the s
 - **Built on Windows only**, by the CI job below. (`better-sqlite3` isn't what ties it to Windows: the version in use (13) carries prebuilds for every platform in its npm package, `win32-x64.node` included, and loads the one for the OS it runs on. With `npmRebuild: false` the package ships them all as they are.)
 - **CI:** `.github/workflows/release.yml`, on every push to `main` and run manually (`workflow_dispatch`). Three jobs:
   - `version`: `semantic-release --dry-run` picks the next version from the Conventional Commits since the last `v*` tag (`fix`/`perf` → patch, `feat` → minor, breaking → major, else none). Both plugins use the `conventionalcommits` preset; the default `angular` one doesn't parse `feat!:`. `scripts/release-version.js`, a local plugin, hands it to the next jobs.
-  - `build`, when there's a version (or on a manual run): a matrix on `macos-latest` (arm64) and `windows-latest` stamps the version into `apps/desktop/package.json`, runs `pnpm install`, `pnpm typecheck`, `pnpm lint`, then `pnpm dist` or `pnpm dist:win`, and uploads the installer as a workflow artifact.
-  - `release`: `semantic-release` tags the commit `v<version>` and publishes a GitHub release with both installers as `Heron-mac-arm64.dmg` and `Heron-windows-x64-setup.exe` (`.releaserc.json`). The plugin stops it if the version differs from the one built, e.g. after a new tag. The tag is pushed before the release is published, so if publishing fails, the tag (and any draft release) has to be deleted before a re-run.
+  - `build`, when there's a version (or on a manual run): a matrix on `macos-latest` (arm64) and `windows-latest` stamps the version into `apps/desktop/package.json`, runs `pnpm install`, `pnpm typecheck`, `pnpm lint`, then `pnpm dist` or `pnpm dist:win`, and uploads the installer, its `.blockmap` and its update feed (`latest-mac.yml`, `latest.yml`) as a workflow artifact.
+  - `release`: `semantic-release` tags the commit `v<version>` and publishes a GitHub release with both installers as `Heron-mac-arm64.dmg` and `Heron-windows-x64-setup.exe`, plus their blockmaps and update feeds (`.releaserc.json`, §13.1). electron-builder already names the installers so (`artifactName`). The plugin stops it if the version differs from the one built, e.g. after a new tag. The tag is pushed before the release is published, so if publishing fails, the tag (and any draft release) has to be deleted before a re-run.
 - **Version:** the tags hold it. `apps/desktop/package.json` stays `0.0.0-development`, which local builds report.
 - The `!node_modules/@anthropic-ai/claude-agent-sdk-*/**` exclusion stays; it covers the SDK's Windows binaries too.
 - The README gets the Windows requirements and how to get the installer.

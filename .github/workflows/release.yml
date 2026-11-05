@@ -54,14 +54,22 @@ jobs:
     strategy:
       matrix:
         include:
+          # Each installer travels with its update feed and blockmap, which installed copies read to
+          # update themselves (SPEC §13.1).
           - os: macos-latest # Apple silicon
             script: dist
             artifact: heron-macos-dmg
-            path: apps/desktop/dist/*.dmg
+            path: |
+              apps/desktop/dist/*.dmg
+              apps/desktop/dist/*.dmg.blockmap
+              apps/desktop/dist/latest-mac.yml
           - os: windows-latest
             script: dist:win
             artifact: heron-windows-installer
-            path: apps/desktop/dist/*.exe
+            path: |
+              apps/desktop/dist/*.exe
+              apps/desktop/dist/*.exe.blockmap
+              apps/desktop/dist/latest.yml
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -102,7 +110,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      # .releaserc.json uploads these as Heron-mac-arm64.dmg and Heron-windows-x64-setup.exe.
+      # .releaserc.json uploads the installers (Heron-mac-arm64.dmg, Heron-windows-x64-setup.exe),
+      # their blockmaps and the update feeds (latest-mac.yml, latest.yml).
       - uses: actions/download-artifact@v4
         with:
           path: artifacts

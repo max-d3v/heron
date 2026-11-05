@@ -19,6 +19,7 @@ import type { Poller } from "./poller.ts";
 import type { Scheduler } from "./scheduler.ts";
 import { skillCommand, type SkillService } from "./skills.ts";
 import type { Store } from "./store.ts";
+import type { Updater } from "./updater.ts";
 
 export interface Services {
   db: HeronDb;
@@ -30,6 +31,7 @@ export interface Services {
   github: GitHubClient;
   git: GitClient;
   skills: SkillService;
+  updater: Updater;
   paths: Paths;
   version: string;
   /** The environment the agent runs with. */
@@ -174,6 +176,16 @@ export function createRouter(s: Services) {
       events: os.app.events.handler(async function* ({ signal }) {
         for await (const e of s.bus.subscribe("app", { signal })) yield e;
       }),
+    },
+
+    updates: {
+      status: os.updates.status.handler(async function* ({ signal }) {
+        const live = s.bus.subscribe("update", { signal });
+        yield s.updater.current;
+        for await (const status of live) yield status;
+      }),
+      check: os.updates.check.handler(() => s.updater.check()),
+      install: os.updates.install.handler(() => s.updater.install()),
     },
 
     doctor: {

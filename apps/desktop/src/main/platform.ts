@@ -125,10 +125,10 @@ export function showTrayHint(onClick: () => void): boolean {
 // ── menus ───────────────────────────────────────────────────────────────────
 
 /**
- * macOS: the app menu, with Settings on ⌘,. Windows: none, so there's no File/Edit bar; the
- * renderer handles Ctrl+, and Quit is in the tray menu.
+ * macOS: the app menu, with Settings on ⌘, and Check for Updates. Windows: none, so there's no
+ * File/Edit bar; the renderer handles Ctrl+, and Quit is in the tray menu.
  */
-export function installAppMenu(openSettings: () => void): void {
+export function installAppMenu(openSettings: () => void, checkForUpdates: () => void): void {
   if (isWindows) {
     Menu.setApplicationMenu(null);
     return;
@@ -140,6 +140,7 @@ export function installAppMenu(openSettings: () => void): void {
         label: "Heron",
         submenu: [
           { role: "about" },
+          { label: "Check for Updates…", click: checkForUpdates },
           { type: "separator" },
           { label: "Settings…", accelerator: "Command+,", click: openSettings },
           { type: "separator" },
@@ -197,6 +198,17 @@ export function trayIcons(resourcesDir: string): TrayIcons {
 export const trayBehavior = isWindows
   ? { openOnClick: true, showsTitle: false, quitAccelerator: undefined }
   : { openOnClick: false, showsTitle: true, quitAccelerator: "Command+Q" };
+
+// ── updates ─────────────────────────────────────────────────────────────────
+
+/**
+ * How Heron installs its own updates (§13.1). Windows: electron-updater runs the new installer on
+ * quit. macOS: Squirrel.Mac only accepts an update signed by the same Developer ID, and an ad-hoc
+ * signature never matches the next build's, so Heron downloads the .dmg and opens it on Install.
+ */
+export const updateBehavior = isWindows
+  ? { installsInPlace: true, installLabel: "Restart to Update" }
+  : { installsInPlace: false, installLabel: "Install Update" };
 
 // ── login item ──────────────────────────────────────────────────────────────
 

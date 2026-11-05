@@ -6,6 +6,7 @@ import { cn } from "../lib/cn";
 import { bytes } from "../lib/format";
 import { client, errorText, orpc } from "../lib/rpc";
 import { DoctorList } from "../components/Doctor";
+import { UpdateRow } from "../components/Update";
 import { Badge, Button, ErrorNote, Field, Switch, TextField, Tooltip } from "../components/ui";
 
 export function GeneralPane() {
@@ -107,6 +108,7 @@ export function GeneralPane() {
               Data folder
             </Button>
           </div>
+          <UpdateRow />
         </Field>
       )}
     </div>
