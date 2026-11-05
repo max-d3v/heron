@@ -122,7 +122,7 @@ Dependency rules:
 | `timeoutMin` | Default 20 |
 | `maxTurns` | Default 100 |
 
-The prompt page shows a **read-only "Output contract" box** under the editor. It explains that the app appends the PR context and the required GitHub-review JSON format, that the diff and context are in `.heron/`, and that `gh` isn't available, so skills must not rely on `` !`gh …` ``.
+The prompt page shows a **read-only "Output contract" box** under the editor, collapsed to its title and a one-line summary until clicked. It explains that the app appends the PR context and the required GitHub-review JSON format, that the diff and context are in `.heron/`, and that `gh` isn't available, so skills must not rely on `` !`gh …` ``.
 
 ### Skills
 - **Import:** copy a skill folder into `Application Support/Heron/plugin/skills/<name>/`. `SKILL.md` can be edited in the app; other files are view-only with "Reveal in Finder".

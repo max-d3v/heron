@@ -2,7 +2,7 @@ import type { ProfileDto, ProfileInput, SkillDto } from "@heron/rpc";
 
 type ProfileKind = ProfileInput["kind"];
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, SlidersHorizontal, Star } from "lucide-react";
+import { ChevronRight, Plus, SlidersHorizontal, Star } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import { errorText, orpc } from "../lib/rpc";
@@ -103,6 +103,27 @@ export function ProfilesPane() {
   );
 }
 
+/** Read-only text Heron adds to every run. Closed by default: one line says what it is, the text is a click away. */
+function ContractBox({ title, summary, text }: { title: string; summary: string; text: string | undefined }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-3 rounded-[8px] bg-content-2 shadow-[0_0_0_0.5px_var(--line)]">
+      <button className="flex w-full items-start gap-1.5 px-3 py-2 text-left" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <ChevronRight className={cn("mt-[1px] size-3.5 shrink-0 text-fg-3 transition-transform", open && "rotate-90")} />
+        <span className="min-w-0">
+          <span className="block text-[12px] font-medium text-fg">{title}</span>
+          <span className="block text-[11.5px] text-fg-2">{summary}</span>
+        </span>
+      </button>
+      {open && (
+        <pre className="selectable max-h-[320px] overflow-auto whitespace-pre-wrap border-t border-line px-3 py-2 font-mono text-[11px] leading-[1.5] text-fg-2">
+          {text ?? "…"}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 function ProfileEditor({ profile, onSaved, onDeleted }: { profile: ProfileInput; onSaved: (p: ProfileDto) => void; onDeleted: () => void }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<ProfileInput>(profile);
@@ -161,12 +182,11 @@ function ProfileEditor({ profile, onSaved, onDeleted }: { profile: ProfileInput;
         />
       )}
 
-      <div className="mb-3 rounded-[8px] bg-content-2 px-3 py-2.5 shadow-[0_0_0_0.5px_var(--line)]">
-        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-2">
-          {iteration ? "Prompt and output format (fixed)" : "Output contract (added by Heron)"}
-        </div>
-        <pre className="selectable whitespace-pre-wrap font-mono text-[11px] leading-[1.5] text-fg-2">{contract.data ?? "…"}</pre>
-      </div>
+      <ContractBox
+        title={iteration ? "Prompt and output format" : "Output contract"}
+        summary={iteration ? "Heron's fixed prompt for iterations, and the format it expects back." : "What Heron adds to your prompt: the PR context and the review format it expects back."}
+        text={contract.data}
+      />
 
       <Field label="Model" hint={models.isPending ? "Loading the models your Claude Code offers…" : undefined}>
         <div className="flex items-center gap-2">
