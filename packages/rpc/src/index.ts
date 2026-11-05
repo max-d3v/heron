@@ -413,7 +413,10 @@ export const doctorCheck = z.object({
   label: z.string(),
   ok: z.boolean(),
   detail: z.string(),
+  /** Prose shown before the command, e.g. where to run it. */
   fix: z.string().nullable(),
+  /** One shell command, nothing else: the copy button copies exactly this. */
+  command: z.string().nullable(),
   /** A failed check holds the queue. A failed non-blocking one is only a warning. */
   blocking: z.boolean(),
 });

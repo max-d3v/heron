@@ -333,7 +333,7 @@ Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`,
 
 **Settings:** Repos (Review and Iteration sections with their own switches; scope, drafts, profile, trust toggle), Profiles (review or iteration kind; prompt editor **or** skill picker, model, effort, limits, read-only output contract box), Skills (import/link, edit `SKILL.md`), General.
 
-**First run / Doctor:** checks `git`, `gh` (installed and logged in), and `claude` (installed and logged in), each with a fix hint. The queue doesn't start until all are green. Windows adds two rows that warn but never block (§17.8).
+**First run / Doctor:** checks `git`, `gh` (installed and logged in), and `claude` (installed and logged in). A failed check shows a short note and one command (`fix`, `command`); the copy button copies only the command. The queue doesn't start until all are green. Windows adds two rows that warn but never block (§17.8).
 
 **Menu bar icon:** status (idle / N running / paused + reason, N ready to push). Menu: Open, Pause all / Resume, Quit.
 
@@ -567,7 +567,7 @@ Heron also runs on Windows, for the same audience as v1 (only me) and with the s
 - **Closing the window** hides it to the tray. The first time, a notification says Heron is still running in the system tray and how to pin the icon so it doesn't sit in the hidden-icons area. It's shown once, remembered in settings.
 - **Launch at login** registers with `--hidden`. Started with `--hidden`, Heron runs without showing the window.
 - **Notifications:** `app.setAppUserModelId("dev.heron.desktop")` at startup, so toasts are attributed to Heron and clicks reach the app.
-- **Doctor:** Windows fix hints are `winget install Git.Git`; `winget install GitHub.cli`, then `gh auth login`; and for Claude, `irm https://claude.ai/install.ps1 | iex` in PowerShell, then `claude` to log in. Two more rows never block the queue: the setup shell (§17.6) and long paths (§17.7). `DoctorCheck` gets `blocking` (default true), the report's `ok` counts only blocking checks, and failed non-blocking checks show as warnings.
+- **Doctor:** Windows install commands are `winget install Git.Git`, `winget install GitHub.cli`, and for Claude `irm https://claude.ai/install.ps1 | iex` in PowerShell. Once a tool is found, the next check shows its login command (`gh auth login`, `claude auth login`). Two more rows never block the queue: the setup shell (§17.6) and long paths (§17.7). `DoctorCheck` gets `blocking` (default true), the report's `ok` counts only blocking checks, and failed non-blocking checks show as warnings.
 
 ### 17.9 Build and distribution
 - **electron-builder `win`:** `nsis`, x64, per-user (`oneClick: true`, `perMachine: false`), so installing needs no admin. Unsigned, so SmartScreen warns on first run (More info → Run anyway). The icon comes from `build/icon.png`, which is above the 256px minimum.
