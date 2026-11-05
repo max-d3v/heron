@@ -1,19 +1,17 @@
 import { execFile } from "node:child_process";
-import type { DoctorCheck, DoctorReport } from "@heron/rpc";
+import type { DoctorCheck, DoctorFix, DoctorReport } from "@heron/rpc";
 import type { GitHubClient } from "@heron/github";
 import { verifyClaudeLogin } from "@heron/harness";
 import { longPathsEnabled, setupShell, which, type Binaries } from "@heron/platform";
 import { isWindows } from "./platform.ts";
 
-/** A failed check's hint: optional prose, then one command the copy button copies as is. */
-type Fix = Pick<DoctorCheck, "fix" | "command">;
-const NO_FIX: Fix = { fix: null, command: null };
+const NO_FIX: DoctorFix = { fix: null, command: null };
 
 /**
  * How to install each tool (§12, §17.8). Logging in is left to the next check, which shows
  * its own command once the tool is found.
  */
-const INSTALL: Record<"git" | "gh" | "claude", Fix> = isWindows
+const INSTALL: Record<"git" | "gh" | "claude", DoctorFix> = isWindows
   ? {
       git: { fix: null, command: "winget install Git.Git" },
       gh: { fix: null, command: "winget install GitHub.cli" },
