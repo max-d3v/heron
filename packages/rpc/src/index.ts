@@ -407,13 +407,20 @@ export const queueStatus = z.object({
   readyToPush: z.number(),
 });
 
-export const doctorCheck = z.object({
+/** A failed check's hint: optional prose, then one command the copy button copies as is. */
+export const doctorFix = z.object({
+  /** Prose shown before the command, e.g. where to run it. */
+  fix: z.string().nullable(),
+  /** One shell command, nothing else: the copy button copies exactly this. */
+  command: z.string().nullable(),
+});
+
+export const doctorCheck = doctorFix.extend({
   /** `shell` and `longPaths` are Windows-only rows (§17.8). */
   id: z.enum(["git", "gh", "claude", "shell", "longPaths"]),
   label: z.string(),
   ok: z.boolean(),
   detail: z.string(),
-  fix: z.string().nullable(),
   /** A failed check holds the queue. A failed non-blocking one is only a warning. */
   blocking: z.boolean(),
 });
@@ -560,5 +567,6 @@ export type SkillFiles = z.infer<typeof skillFiles>;
 export type SettingsDto = z.infer<typeof settings>;
 export type QueueStatusDto = z.infer<typeof queueStatus>;
 export type DoctorReport = z.infer<typeof doctorReport>;
+export type DoctorFix = z.infer<typeof doctorFix>;
 export type DoctorCheck = z.infer<typeof doctorCheck>;
 export type AppEvent = z.infer<typeof appEvent>;

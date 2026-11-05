@@ -1,7 +1,7 @@
 import type { PrListItem, QueueStatusDto } from "@heron/rpc";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitPullRequest } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Banner } from "./components/Banner";
 import { DoctorScreen } from "./components/Doctor";
 import { PrDetail, type Tab } from "./components/PrDetail";
@@ -10,7 +10,7 @@ import { Empty, TooltipProvider } from "./components/ui";
 import { useStream } from "./lib/hooks";
 import { isWindows } from "./lib/platform";
 import { client, orpc } from "./lib/rpc";
-import { isListed } from "./lib/visibility";
+import { isListed, isSettled } from "./lib/visibility";
 import { Settings, type SettingsTab } from "./settings/Settings";
 
 export function App() {
@@ -46,6 +46,22 @@ export function App() {
     if (!list) return;
     if (selected !== null && listed.some((p) => p.id === selected)) return;
     setSelected(listed[0]?.id ?? null);
+  }, [list, listed, selected]);
+
+  // A newly arrived PR takes the selection, but only from one that's settled (closed, merged, or
+  // no issues), never from one still needing you. The first list only records what's there.
+  const seenIds = useRef<Set<number> | null>(null);
+  useEffect(() => {
+    if (!list) return;
+    const before = seenIds.current;
+    seenIds.current = new Set(list.map((p) => p.id));
+    if (!before) return;
+    const arrived = listed.find((p) => p.state === "open" && !before.has(p.id));
+    if (!arrived) return;
+    const current = list.find((p) => p.id === selected);
+    if (current && !isSettled(current)) return;
+    setSelected(arrived.id);
+    setRequestedTab(null);
   }, [list, listed, selected]);
 
   const openSettings = useCallback((tab: SettingsTab = "repos") => setSettingsTab(tab), []);

@@ -8,3 +8,12 @@ import type { PrListItem } from "@heron/rpc";
 export function isListed(pr: PrListItem, showAll: boolean): boolean {
   return showAll || pr.inScope || pr.status !== "not_reviewed" || pr.iterationEligible || pr.iteration !== null;
 }
+
+/**
+ * Nothing left for you on it, so a newly arrived PR may take the selection: it's closed or
+ * merged, or its current head was reviewed with no issues and no iteration is under way.
+ */
+export function isSettled(pr: PrListItem): boolean {
+  if (pr.state !== "open") return true;
+  return pr.status === "no_issues" && !pr.headUnreviewed && pr.iteration === null;
+}

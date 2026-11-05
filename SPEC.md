@@ -122,7 +122,7 @@ Dependency rules:
 | `timeoutMin` | Default 20 |
 | `maxTurns` | Default 100 |
 
-The prompt page shows a **read-only "Output contract" box** under the editor. It explains that the app appends the PR context and the required GitHub-review JSON format, that the diff and context are in `.heron/`, and that `gh` isn't available, so skills must not rely on `` !`gh …` ``.
+The prompt page shows a **read-only "Output contract" box** under the editor, collapsed to its title and a one-line summary until clicked. It explains that the app appends the PR context and the required GitHub-review JSON format, that the diff and context are in `.heron/`, and that `gh` isn't available, so skills must not rely on `` !`gh …` ``.
 
 ### Skills
 - **Import:** copy a skill folder into `Application Support/Heron/plugin/skills/<name>/`. `SKILL.md` can be edited in the app; other files are view-only with "Reveal in Finder".
@@ -321,7 +321,7 @@ oRPC over a `MessagePort` handed to the renderer through the preload script. Zod
 Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`, system font, follows light/dark mode. Tailwind + Radix, styled to look like macOS rather than a web dashboard. Windows keeps the same layout with Windows window chrome (§17.8).
 
 **Main window**
-- **Sidebar:** a flat list sorted by **latest review activity**. Each row: live review status, as a dot while there's work to come (not reviewed, waiting, queued, running with spinner, cancelled, superseded) and an icon for an outcome (posted: green speech bubble; no issues found: green check; dry run · not posted: green dashed speech bubble; failed: red cross), an iteration badge (§15.8), title, `repo#n`, author avatar, relative time. At the top: repo filter + search. At the bottom: ⚙ Settings.
+- **Sidebar:** a flat list sorted by **latest review activity**. Each row: live review status, as a dot while there's work to come (not reviewed, waiting, queued, running with spinner, cancelled, superseded) and an icon for an outcome (posted: green speech bubble; no issues found: green check; dry run · not posted: green dashed speech bubble; failed: red cross), an iteration badge (§15.8), title, `repo#n`, author avatar, relative time. At the top: repo filter + search. At the bottom: ⚙ Settings. A newly arrived open PR takes the selection only when the selected PR is settled: closed or merged, or its current head reviewed with no issues and no iteration badge.
 - **Detail header:** title, `owner/repo#n`, author, `head → base`, short SHA. Buttons: Open on GitHub, Review now, Re-run.
 - **Tabs:**
   - **Review:** body (markdown), then inline comments grouped by file, each with nearby diff lines. No badges; it's all user-formatted markdown.
@@ -333,7 +333,7 @@ Modern native macOS look: `titleBarStyle: "hiddenInset"`, `vibrancy: "sidebar"`,
 
 **Settings:** Repos (Review and Iteration sections with their own switches; scope, drafts, profile, trust toggle), Profiles (review or iteration kind; prompt editor **or** skill picker, model, effort, limits, read-only output contract box), Skills (import/link, edit `SKILL.md`), General.
 
-**First run / Doctor:** checks `git`, `gh` (installed and logged in), and `claude` (installed and logged in), each with a fix hint. The queue doesn't start until all are green. Windows adds two rows that warn but never block (§17.8).
+**First run / Doctor:** checks `git`, `gh` (installed and logged in), and `claude` (installed and logged in). A failed check shows a short note and one command (`fix`, `command`); the copy button copies only the command. The queue doesn't start until all are green. Windows adds two rows that warn but never block (§17.8).
 
 **Menu bar icon:** status (idle / N running / paused + reason, N ready to push). Menu: Open, Pause all / Resume, Quit.
 
@@ -567,7 +567,7 @@ Heron also runs on Windows, for the same audience as v1 (only me) and with the s
 - **Closing the window** hides it to the tray. The first time, a notification says Heron is still running in the system tray and how to pin the icon so it doesn't sit in the hidden-icons area. It's shown once, remembered in settings.
 - **Launch at login** registers with `--hidden`. Started with `--hidden`, Heron runs without showing the window.
 - **Notifications:** `app.setAppUserModelId("dev.heron.desktop")` at startup, so toasts are attributed to Heron and clicks reach the app.
-- **Doctor:** Windows fix hints are `winget install Git.Git`; `winget install GitHub.cli`, then `gh auth login`; and for Claude, `irm https://claude.ai/install.ps1 | iex` in PowerShell, then `claude` to log in. Two more rows never block the queue: the setup shell (§17.6) and long paths (§17.7). `DoctorCheck` gets `blocking` (default true), the report's `ok` counts only blocking checks, and failed non-blocking checks show as warnings.
+- **Doctor:** Windows install commands are `winget install Git.Git`, `winget install GitHub.cli`, and for Claude `irm https://claude.ai/install.ps1 | iex` in PowerShell. Once a tool is found, the next check shows its login command (`gh auth login`, `claude auth login`). Two more rows never block the queue: the setup shell (§17.6) and long paths (§17.7). `DoctorCheck` gets `blocking` (default true), the report's `ok` counts only blocking checks, and failed non-blocking checks show as warnings.
 
 ### 17.9 Build and distribution
 - **electron-builder `win`:** `nsis`, x64, per-user (`oneClick: true`, `perMachine: false`), so installing needs no admin. Unsigned, so SmartScreen warns on first run (More info → Run anyway). The icon comes from `build/icon.png`, which is above the 256px minimum.

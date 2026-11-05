@@ -12,6 +12,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
+    "badges:win": "electron scripts/win-badges.mjs",
     "dist": "electron-vite build && electron-builder --mac --publish never --config electron-builder.yml",
     "dist:win": "electron-vite build && electron-builder --win --x64 --publish never --config electron-builder.yml"
   },

@@ -1,21 +1,26 @@
 import { execFile } from "node:child_process";
-import type { DoctorCheck, DoctorReport } from "@heron/rpc";
+import type { DoctorCheck, DoctorFix, DoctorReport } from "@heron/rpc";
 import type { GitHubClient } from "@heron/github";
 import { verifyClaudeLogin } from "@heron/harness";
 import { longPathsEnabled, setupShell, which, type Binaries } from "@heron/platform";
 import { isWindows } from "./platform.ts";
 
-/** How to install each tool (§12, §17.8). */
-const INSTALL = isWindows
+const NO_FIX: DoctorFix = { fix: null, command: null };
+
+/**
+ * How to install each tool (§12, §17.8). Logging in is left to the next check, which shows
+ * its own command once the tool is found.
+ */
+const INSTALL: Record<"git" | "gh" | "claude", DoctorFix> = isWindows
   ? {
-      git: "winget install Git.Git",
-      gh: "winget install GitHub.cli, then gh auth login",
-      claude: "irm https://claude.ai/install.ps1 | iex (in PowerShell), then run claude and log in",
+      git: { fix: null, command: "winget install Git.Git" },
+      gh: { fix: null, command: "winget install GitHub.cli" },
+      claude: { fix: "In PowerShell:", command: "irm https://claude.ai/install.ps1 | iex" },
     }
   : {
-      git: "Install the Xcode Command Line Tools: xcode-select --install",
-      gh: "brew install gh, then gh auth login",
-      claude: "curl -fsSL https://claude.ai/install.sh | bash, then run claude and log in",
+      git: { fix: "Install the Xcode Command Line Tools:", command: "xcode-select --install" },
+      gh: { fix: null, command: "brew install gh" },
+      claude: { fix: null, command: "curl -fsSL https://claude.ai/install.sh | bash" },
     };
 
 function run(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<{ ok: boolean; stdout: string; stderr: string }> {
@@ -41,7 +46,7 @@ export async function runDoctor(
 
   // git
   if (!bins.git) {
-    checks.push({ id: "git", label: "git", ok: false, detail: "Not found on your PATH.", fix: INSTALL.git, blocking: true });
+    checks.push({ id: "git", label: "git", ok: false, detail: "Not found on your PATH.", ...INSTALL.git, blocking: true });
   } else {
     const r = await run(bins.git, ["--version"], env);
     checks.push({
@@ -49,30 +54,31 @@ export async function runDoctor(
       label: "git",
       ok: r.ok,
       detail: r.ok ? `${r.stdout.trim()} (${bins.git})` : r.stderr.trim(),
-      fix: r.ok ? null : INSTALL.git,
+      ...(r.ok ? NO_FIX : INSTALL.git),
       blocking: true,
     });
   }
 
   // gh
   if (!bins.gh) {
-    checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not found on your PATH.", fix: INSTALL.gh, blocking: true });
+    checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not found on your PATH.", ...INSTALL.gh, blocking: true });
   } else {
     const status = await run(bins.gh, ["auth", "status", "--hostname", "github.com"], env);
     if (!status.ok) {
-      checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not logged in to github.com.", fix: "gh auth login", blocking: true });
+      checks.push({ id: "gh", label: "GitHub CLI", ok: false, detail: "Not logged in to github.com.", fix: null, command: "gh auth login", blocking: true });
     } else {
       try {
         github.resetAuth();
         viewer = await github.viewer();
-        checks.push({ id: "gh", label: "GitHub CLI", ok: true, detail: `Logged in as ${viewer.login}`, fix: null, blocking: true });
+        checks.push({ id: "gh", label: "GitHub CLI", ok: true, detail: `Logged in as ${viewer.login}`, ...NO_FIX, blocking: true });
       } catch (err) {
         checks.push({
           id: "gh",
           label: "GitHub CLI",
           ok: false,
           detail: `The gh token doesn't work with the API: ${err instanceof Error ? err.message : String(err)}`,
-          fix: "gh auth refresh -h github.com -s repo",
+          fix: null,
+          command: "gh auth refresh -h github.com -s repo",
           blocking: true,
         });
       }
@@ -88,7 +94,7 @@ export async function runDoctor(
       label: "Claude Code",
       ok: false,
       detail: wrapper ? `Only ${wrapper} was found, and Heron runs the native claude.exe, never a wrapper.` : "Not found on your PATH.",
-      fix: INSTALL.claude,
+      ...INSTALL.claude,
       blocking: true,
     });
   } else {
@@ -121,7 +127,11 @@ export async function runDoctor(
         : loggedIn
           ? `${version.stdout.trim()}${who ? `, ${who}` : ""}`
           : (expired ?? "Not logged in."),
-      fix: !version.ok ? "Reinstall Claude Code" : loggedIn ? null : "Run claude in a terminal and log in with /login",
+      ...(!version.ok
+        ? { fix: isWindows ? "Reinstall it in PowerShell:" : "Reinstall it:", command: INSTALL.claude.command }
+        : loggedIn
+          ? NO_FIX
+          : { fix: null, command: "claude auth login" }),
       blocking: true,
     });
   }
@@ -135,7 +145,7 @@ export async function runDoctor(
       label: "Setup shell",
       ok: bash,
       detail: bash ? `Setup commands run in Git Bash (${shell.path}).` : `Setup commands run in ${shell.name} (${shell.path}), so one written for bash may fail.`,
-      fix: bash ? null : INSTALL.git,
+      ...(bash ? NO_FIX : INSTALL.git),
       blocking: false,
     });
   }
@@ -149,7 +159,8 @@ export async function runDoctor(
       detail: longPaths
         ? "Windows accepts paths over 260 characters."
         : "Windows limits paths to 260 characters, which a setup command's node_modules can pass. Turning the limit off needs an administrator PowerShell; restart Heron after:",
-      fix: longPaths ? null : 'New-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force',
+      fix: null,
+      command: longPaths ? null : 'New-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force',
       blocking: false,
     });
   }

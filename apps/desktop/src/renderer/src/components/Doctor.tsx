@@ -38,7 +38,8 @@ export function DoctorList({ compact }: { compact?: boolean }) {
             <div className="min-w-0 flex-1">
               <div className="text-[13px] font-medium">{c.label}</div>
               <div className="selectable text-[11.5px] text-fg-2">{c.detail}</div>
-              {!c.ok && c.fix && <FixHint text={c.fix} />}
+              {!c.ok && c.fix && <div className="selectable mt-1.5 text-[11.5px] text-fg-2">{c.fix}</div>}
+              {!c.ok && c.command && <CommandHint command={c.command} />}
             </div>
           </div>
         ))
@@ -53,16 +54,17 @@ export function DoctorList({ compact }: { compact?: boolean }) {
   );
 }
 
-function FixHint({ text }: { text: string }) {
+/** A command to paste in a terminal; the copy button copies it and nothing else. */
+function CommandHint({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="mt-1.5 flex items-center gap-2">
-      <code className="selectable min-w-0 flex-1 truncate rounded-[5px] bg-field px-2 py-1 font-mono text-[11.5px]">{text}</code>
+      <code className="selectable min-w-0 flex-1 truncate rounded-[5px] bg-field px-2 py-1 font-mono text-[11.5px]">{command}</code>
       <button
-        aria-label="Copy"
+        aria-label="Copy command"
         className="rounded-[5px] p-1 text-fg-3 hover:bg-hover hover:text-fg"
         onClick={() => {
-          void navigator.clipboard.writeText(text);
+          void navigator.clipboard.writeText(command);
           setCopied(true);
           setTimeout(() => setCopied(false), 1200);
         }}

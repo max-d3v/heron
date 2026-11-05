@@ -263,8 +263,8 @@ function IterationFields({
         label="Automatic iteration"
         hint={
           repo.iterationAutoStart
-            ? "Once new comments are triaged, the agent starts on its own."
-            : "New comments are triaged, then wait for you to click Iterate."
+            ? "The agent picks up new comments on its own."
+            : "Comments pile up until you click Iterate."
         }
       >
         <Segmented
