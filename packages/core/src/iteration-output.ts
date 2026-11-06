@@ -88,6 +88,12 @@ export function parseTriageOutput(value: unknown): { ok: true; output: TriageOut
   return parseWith(triageOutputSchema, value);
 }
 
+/**
+ * The note Heron gives an item the agent left out of its output (reported as not addressed). It's
+ * no reason to give a reviewer, so it's never posted, nor shown to a later review as one.
+ */
+export const UNREPORTED_NOTE = "The agent didn't report on this item.";
+
 /** The commit trailer that ties a commit to its iteration. */
 export function iterationTrailer(iterationId: number): string {
   return `Heron-Iteration: ${iterationId}`;

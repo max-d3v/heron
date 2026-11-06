@@ -233,11 +233,18 @@ query({
 |---|---|
 | `pr.diff` | full diff `base…head` |
 | `since-last-review.diff` | `lastReviewedSha..headSha`. **Only written** if the last reviewed SHA is an ancestor (skipped after a force-push) |
-| `previous-reviews.json` | our earlier posted reviews on this PR (body + comments) |
+| `previous-reviews.json` | our earlier reviews on this PR, oldest first: posted ones from GitHub (body + comments + replies), and dry runs from Heron's database (below) |
 | `pr-comments.json` | humans' review comments and replies |
 | `pr.json` | PR metadata |
 
 The default system prompt says: focus on what changed, and don't repeat earlier comments unless they still apply and matter. Prompts and skills may use or ignore the files.
+
+**Dry runs in `previous-reviews.json`.** GitHub has no trace of a dry run, so without them a review couldn't tell what earlier dry runs found or what the author did about it, and would raise findings an iteration had already declined. Each earlier held-back dry run of the PR (`completed` with something to say, older than this review; one posted by hand comes from GitHub instead) is listed with `"dryRun": true`, its `sha`, `submittedAt` (when it finished), `body` and `comments`. Each finding carries what came of it, `bodyOutcome` for the body and `outcome` for each comment:
+- `{ by: "iteration", status: "addressed", note, commit }` or `{ by: "iteration", status: "not_addressed", note }` from the newest iteration that worked on it and settled (`pushed` or `no_changes`); `commit` is null without a push. An item the agent left out of its report counts as nothing decided.
+- else `{ by: "triage", status: "no_change", reason }` when triage set it aside;
+- else `null`: iterations were off, it's still waiting, its result was discarded, or a newer review replaced it.
+
+With dry runs listed, the prompt names how many of each kind there are and adds: nobody sees dry runs on the PR, and the author sees only the latest review in Heron, so raise a dry-run finding again when it still applies, unless it was addressed (checked) or left alone for a reason the reviewer agrees with.
 
 ### 7.4 Output contract
 Mirrors GitHub's review format. **No extra fields** (the format is the user's choice; any structure goes in markdown).
