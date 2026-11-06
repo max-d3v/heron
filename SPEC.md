@@ -523,7 +523,7 @@ Stop iterations on one PR, e.g. while you work on its branch yourself, without t
 - **While paused, nothing starts the agent on the PR:**
   - Comments still sync and are triaged (§15.3, §15.4). A batch with something to change goes to `awaiting_start`, with no "Feedback waiting" notification.
   - **Iterate**, **Re-run** and **Re-run in a worktree** are refused ("Resume iterations on this PR to run").
-  - `held` batches, and `queued` ones whose next step is the agent (a fresh start, or a retry of `preparing` or `running`), go back to `awaiting_start`, merged into one batch (a queued one is kept, since it may be a Re-run). A head move requeues stale work to `awaiting_start` too.
+  - `held` batches, and `queued` ones whose next step is the agent (a fresh start, or a retry of `preparing` or `running`), go back to `awaiting_start`, merged into one batch (a Re-run, held or queued, is kept with its trigger and any worktree snapshot; else a queued one, else the oldest). A head move requeues stale work to `awaiting_start` too.
   - Work already past that carries on: a run in `preparing`, `running` or `committing` finishes (Cancel still works), and so do a retry of `committing`, `pushing` or `replying` and a push in progress.
   - A result stops at `ready` even with `iterationAutoPush` on. **Push**, **Discard** and **Uncommit** still work: they're your clicks and start no agent.
 - **Resume** clears it. Batches in `awaiting_start` go where the repo sends them: `queued` (or `held` behind a `ready` result) when `iterationAutoStart` is on and the loop cap allows; otherwise they keep waiting for Iterate. A result held at `ready` stays there for Push. The loop cap's streak isn't reset.
