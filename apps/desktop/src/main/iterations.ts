@@ -146,14 +146,23 @@ export class IterationScheduler {
     return this.d.db.listIterationsForPr(prId).some((i) => i.id !== except && occupiesPr(i.state));
   }
 
-  /** Unhandled comments that count under the repo's iteration comments and no live iteration has claimed. */
+  /**
+   * Unhandled comments that count under the repo's iteration comments and no live iteration has
+   * claimed. Dry-run findings count only while `iterationDryRuns` is on: turning it off stops a
+   * batch debouncing on them, like a change to `iterationComments`.
+   */
   private candidates(pr: Pr, repo: Repo): Feedback[] {
     const { db } = this.d;
     const viewer = this.d.viewerLogin();
     const live = new Set(db.listIterationsForPr(pr.id).filter((i) => isIterationActive(i.state)).map((i) => i.id));
     return db
       .listFeedbackForPr(pr.id, "unhandled")
-      .filter((f) => (f.iterationId === null || !live.has(f.iterationId)) && feedbackCounts(repo.iterationComments, f.author, viewer));
+      .filter(
+        (f) =>
+          (f.iterationId === null || !live.has(f.iterationId)) &&
+          (f.reviewId === null || repo.iterationDryRuns) &&
+          feedbackCounts(repo.iterationComments, f.author, viewer),
+      );
   }
 
   /**
@@ -202,11 +211,21 @@ export class IterationScheduler {
   // ── dry-run reviews ───────────────────────────────────────────────────────
 
   /**
-   * A dry run held back a review that found something (§6.1). With `iterationDryRuns` on, its
-   * findings become feedback as if it had been posted, without anything reaching GitHub (§15.3).
+   * A review finished `completed` or `posted` (§6.1). A dry run that held back a review that found
+   * something: with `iterationDryRuns` on, its findings become feedback as if it had been posted,
+   * without anything reaching GitHub (§15.3). Any other review of the PR's head (nothing to say, or
+   * posted) looked at the code again, so earlier dry-run findings nothing has taken up go.
    */
-  dryRunFinished(review: Review): void {
-    if (!this.recordDryRun(review)) return;
+  reviewFinished(review: Review): void {
+    if (isHeldBack(review.state, review.payload)) {
+      if (!this.recordDryRun(review)) return;
+    } else {
+      const pr = this.d.db.getPr(review.prId);
+      if (!pr || review.headSha !== pr.headSha) return;
+      const why = review.state === "posted" ? "Replaced by a newer posted review" : "A newer review found nothing";
+      if (!this.dropDryRunFindings(pr, (f) => f.reviewId !== review.id, why)) return;
+    }
+    // A batch still debouncing on set-aside findings alone has nothing left to triage.
     this.plan(review.prId);
     this.tick();
   }
@@ -251,7 +270,7 @@ export class IterationScheduler {
    * unclaimed ones, those left by a finished batch, and those of a batch still debouncing, waiting
    * for Iterate or held (a Re-run keeps its own). A waiting batch left with nothing ends.
    */
-  private dropDryRunFindings(pr: Pr, which: (f: Feedback) => boolean, why: string): void {
+  private dropDryRunFindings(pr: Pr, which: (f: Feedback) => boolean, why: string): boolean {
     const { db, store } = this.d;
     const its = db.listIterationsForPr(pr.id);
     const waiting = new Set(its.filter((i) => WAITING.has(i.state) && i.trigger !== "rerun").map((i) => i.id));
@@ -259,7 +278,7 @@ export class IterationScheduler {
     const rows = db
       .listFeedbackForPr(pr.id, "unhandled")
       .filter((f) => f.reviewId !== null && which(f) && (f.iterationId === null || !live.has(f.iterationId) || waiting.has(f.iterationId)));
-    if (rows.length === 0) return;
+    if (rows.length === 0) return false;
     db.updateFeedback(
       rows.map((f) => f.id),
       { status: "handled", handledAt: Date.now() },
@@ -272,6 +291,7 @@ export class IterationScheduler {
       // A debouncing batch only holds claimed rows on a triage retry; it can't skip before its triage.
       store.transitionIteration(it, it.state === "debouncing" ? "cancelled" : "skipped", { patch: { finishedAt: Date.now(), runAfter: null }, message: why });
     }
+    return true;
   }
 
   // ── feedback sync ─────────────────────────────────────────────────────────

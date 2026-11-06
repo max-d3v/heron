@@ -160,7 +160,7 @@ async function main(): Promise<void> {
     requestPoll: () => void poller.pollNow(),
     iterations: () => ({ running: iterations.runningCount, readyToPush: iterations.readyToPush() }),
     dryRuns: {
-      finished: (review) => iterations.dryRunFinished(review),
+      finished: (review) => iterations.reviewFinished(review),
       posted: (review) => iterations.dryRunPosted(review),
     },
   });
