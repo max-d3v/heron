@@ -172,6 +172,8 @@ export const iterationDetail = iterationSummary.extend({
     z.object({
       number: z.number(),
       kind: z.enum(FEEDBACK_KINDS),
+      /** A finding of Heron's dry-run review, never posted (no thread on GitHub). */
+      dryRun: z.boolean(),
       path: z.string().nullable(),
       line: z.number().nullable(),
       outdated: z.boolean(),
@@ -187,6 +189,8 @@ export const iterationDetail = iterationSummary.extend({
 export const feedbackGroup = z.object({
   key: z.string(),
   kind: z.enum(FEEDBACK_KINDS),
+  /** A finding of Heron's dry-run review, never posted (no thread on GitHub). */
+  dryRun: z.boolean(),
   path: z.string().nullable(),
   line: z.number().nullable(),
   outdated: z.boolean(),
@@ -204,6 +208,8 @@ export const feedbackPanel = z.object({
   /** The agent starts on its own after triage; off, batches wait for Iterate. */
   autoStart: z.boolean(),
   comments: z.enum(ITERATION_COMMENTS),
+  /** A dry-run review's findings count too (`iterationDryRuns`). */
+  dryRuns: z.boolean(),
   /** Heron pushed `loopCap` times in a row: the PR waits for Iterate until someone else pushes. */
   loopCapped: z.boolean(),
   pushStreak: z.number(),
@@ -293,6 +299,7 @@ export const repo = z.object({
   iterationProfileId: id.nullable(),
   iterationAutoPush: z.boolean(),
   iterationReply: z.boolean(),
+  iterationDryRuns: z.boolean(),
   setupCommand: z.string().nullable(),
   useLocalCheckout: z.boolean(),
   localCheckoutPath: z.string().nullable(),
@@ -314,6 +321,7 @@ export const repoPatch = z.object({
   iterationProfileId: id.nullable().optional(),
   iterationAutoPush: z.boolean().optional(),
   iterationReply: z.boolean().optional(),
+  iterationDryRuns: z.boolean().optional(),
   setupCommand: z.string().trim().max(2000).nullable().optional(),
   useLocalCheckout: z.boolean().optional(),
   localCheckoutPath: z.string().trim().nullable().optional(),

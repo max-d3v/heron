@@ -159,6 +159,10 @@ async function main(): Promise<void> {
     notify,
     requestPoll: () => void poller.pollNow(),
     iterations: () => ({ running: iterations.runningCount, readyToPush: iterations.readyToPush() }),
+    dryRuns: {
+      finished: (review) => iterations.dryRunFinished(review),
+      posted: (review) => iterations.dryRunPosted(review),
+    },
   });
   iterations = new IterationScheduler({
     db,

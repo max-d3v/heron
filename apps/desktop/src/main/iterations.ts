@@ -4,8 +4,10 @@ import {
   LimitError,
   OutputParseError,
   classifyError,
+  dryRunFeedback,
   errorMessage,
   feedbackCounts,
+  isHeldBack,
   isIterationActive,
   isIterationInFlight,
   isIterationTerminal,
@@ -19,6 +21,7 @@ import {
   type Pr,
   type PrChange,
   type Repo,
+  type Review,
   type Settings,
   type TriageVerdict,
 } from "@heron/core";
@@ -185,8 +188,90 @@ export class IterationScheduler {
 
   /** The repo's iteration settings changed: re-plan its open PRs. */
   replanRepo(repoId: number): void {
-    for (const pr of this.d.db.listPrsForRepo(repoId)) if (pr.state === "open") this.plan(pr.id);
+    const { db } = this.d;
+    for (const pr of db.listPrsForRepo(repoId)) {
+      if (pr.state !== "open") continue;
+      // Switching dry-run iterations on takes up the dry run already held back on the PR's head.
+      const latest = db.listReviewsForPr(pr.id).find((r) => r.state === "completed" || r.state === "posted");
+      if (latest) this.recordDryRun(latest);
+      this.plan(pr.id);
+    }
     this.tick();
+  }
+
+  // ── dry-run reviews ───────────────────────────────────────────────────────
+
+  /**
+   * A dry run held back a review that found something (§6.1). With `iterationDryRuns` on, its
+   * findings become feedback as if it had been posted, without anything reaching GitHub (§15.3).
+   */
+  dryRunFinished(review: Review): void {
+    if (!this.recordDryRun(review)) return;
+    this.plan(review.prId);
+    this.tick();
+  }
+
+  /** True when the review's findings were new. Recording the same review again adds nothing. */
+  private recordDryRun(review: Review): boolean {
+    const { db, store } = this.d;
+    const pr = db.getPr(review.prId);
+    const repo = pr ? this.eligibleRepo(pr) : null;
+    const viewer = this.d.viewerLogin();
+    if (!pr || !repo?.iterationEnabled || !repo.iterationDryRuns || !viewer) return false;
+    if (!review.payload || !isHeldBack(review.state, review.payload)) return false;
+    // A review of an earlier head (a Re-run of an old SHA): the head has, or will get, its own.
+    if (review.headSha !== pr.headSha) return false;
+    const found = dryRunFeedback(review.id, review.payload, viewer, review.finishedAt ?? Date.now());
+    const added = db.upsertFeedback(pr.id, found, review.id);
+    if (added.length === 0) return false;
+    // This review looked at the code again, so findings of earlier dry runs that nothing has taken up yet go.
+    this.dropDryRunFindings(pr, (f) => f.reviewId !== review.id, "Replaced by a newer dry-run review");
+    store.activity({
+      prId: pr.id,
+      reviewId: review.id,
+      kind: "feedback.observed",
+      message: `${plural(added.length, "finding")} from the dry-run review of ${short(review.headSha)}`,
+      data: { ids: added.map((f) => f.id) },
+    });
+    return true;
+  }
+
+  /** A dry run was posted by hand: its findings come back as GitHub comments at the next sync, so Heron's copies go. */
+  dryRunPosted(review: Review): void {
+    const pr = this.d.db.getPr(review.prId);
+    if (!pr) return;
+    this.dropDryRunFindings(pr, (f) => f.reviewId === review.id, "The dry-run review was posted to GitHub");
+    // A batch still debouncing on those findings alone has nothing left to triage.
+    this.plan(pr.id);
+    this.tick();
+  }
+
+  /**
+   * Set aside the unhandled dry-run findings `which` picks that no batch has taken past waiting:
+   * unclaimed ones, those left by a finished batch, and those of a batch still debouncing, waiting
+   * for Iterate or held (a Re-run keeps its own). A waiting batch left with nothing ends.
+   */
+  private dropDryRunFindings(pr: Pr, which: (f: Feedback) => boolean, why: string): void {
+    const { db, store } = this.d;
+    const its = db.listIterationsForPr(pr.id);
+    const waiting = new Set(its.filter((i) => WAITING.has(i.state) && i.trigger !== "rerun").map((i) => i.id));
+    const live = new Set(its.filter((i) => isIterationActive(i.state)).map((i) => i.id));
+    const rows = db
+      .listFeedbackForPr(pr.id, "unhandled")
+      .filter((f) => f.reviewId !== null && which(f) && (f.iterationId === null || !live.has(f.iterationId) || waiting.has(f.iterationId)));
+    if (rows.length === 0) return;
+    db.updateFeedback(
+      rows.map((f) => f.id),
+      { status: "handled", handledAt: Date.now() },
+    );
+    store.activity({ prId: pr.id, reviewId: null, kind: "feedback.resolved", message: `Set aside ${plural(rows.length, "dry-run finding")}: ${why.toLowerCase()}` });
+    const emptied = new Set(rows.map((f) => f.iterationId));
+    for (const it of its) {
+      if (!waiting.has(it.id) || !emptied.has(it.id)) continue;
+      if (db.listFeedbackForIteration(it.id).some((f) => f.status === "unhandled")) continue;
+      // A debouncing batch only holds claimed rows on a triage retry; it can't skip before its triage.
+      store.transitionIteration(it, it.state === "debouncing" ? "cancelled" : "skipped", { patch: { finishedAt: Date.now(), runAfter: null }, message: why });
+    }
   }
 
   // ── feedback sync ─────────────────────────────────────────────────────────

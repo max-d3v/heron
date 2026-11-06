@@ -10,7 +10,7 @@ import { client, errorText, orpc } from "../../lib/rpc";
 import { DiffView } from "../DiffView";
 import { Markdown } from "../Markdown";
 import { ButtonTip } from "../PrDetail";
-import { Badge, Button, Confirm, Empty, ErrorNote, Spinner } from "../ui";
+import { Badge, Button, Confirm, Empty, ErrorNote, Spinner, Tooltip } from "../ui";
 import { StepList } from "./ReviewTab";
 
 const COMMENTS_EMPTY: Record<FeedbackPanel["comments"], string> = {
@@ -86,7 +86,8 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
         !showFeedback && (
           <div className="pt-12">
             <Empty icon={<MessagesSquare className="size-7" />} title="No feedback to address">
-              {COMMENTS_EMPTY[p.comments]},{" "}
+              {COMMENTS_EMPTY[p.comments]}
+              {p.dryRuns ? " or a dry-run review finds something" : ""},{" "}
               {p.autoStart
                 ? "an agent addresses the comments and Heron commits the changes."
                 : "Heron triages the comments and waits for you to click Iterate."}
@@ -156,9 +157,22 @@ function FeedbackSection({ pr, panel, readyId }: { pr: PrDetail; panel: Feedback
   );
 }
 
-function location(g: { kind: FeedbackGroupDto["kind"]; path: string | null; line: number | null }): string {
+function location(g: { kind: FeedbackGroupDto["kind"]; dryRun: boolean; path: string | null; line: number | null }): string {
   if (g.kind === "inline") return g.line ? `${g.path}:${g.line}` : (g.path ?? "Inline comment");
+  if (g.dryRun) return "Dry-run review";
   return g.kind === "review" ? "Review" : "Conversation";
+}
+
+/** A finding of Heron's dry-run review: it was never posted, so there's nothing to open on GitHub. */
+function DryRunBadge({ dryRun }: { dryRun: boolean }) {
+  if (!dryRun) return null;
+  return (
+    <Tooltip content="From Heron's dry-run review, never posted to GitHub">
+      <span className="inline-flex shrink-0">
+        <Badge tone="teal">Dry run</Badge>
+      </span>
+    </Tooltip>
+  );
 }
 
 function Verdict({ verdict }: { verdict: FeedbackGroupDto["verdict"] }) {
@@ -182,6 +196,7 @@ function FeedbackRow({ group, first }: { group: FeedbackGroupDto; first: boolean
       <div className="flex items-center gap-2 text-[11.5px]">
         <span className="selectable min-w-0 truncate font-mono text-fg-2">{location(group)}</span>
         {group.outdated && <Badge>Outdated</Badge>}
+        <DryRunBadge dryRun={group.dryRun} />
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <Verdict verdict={group.verdict} />
           <OpenLink url={group.url} label="Open on GitHub" />
@@ -544,6 +559,7 @@ function ItemRow({ item, first }: { item: IterationDetail["items"][number]; firs
           <span className="font-mono">{item.number}.</span>
           <span className="selectable min-w-0 truncate font-mono">{location(item)}</span>
           {item.outdated && <Badge>Outdated</Badge>}
+          <DryRunBadge dryRun={item.dryRun} />
           {author && <span className="shrink-0 text-fg-3">@{author}</span>}
           <span className="ml-auto flex shrink-0 items-center gap-2">
             {item.comments.length > 0 && (

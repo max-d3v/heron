@@ -29,7 +29,9 @@ Heron also adds:
       "items": [{ "number", "status": "addressed" | "not_addressed", "note" }] }
   Heron commits the changes under your git identity (title, then a link and the note for each addressed comment),
   pushes them, replies "Addressed in <sha> — <note>" on each addressed inline thread and resolves it,
-  and replies "Not addressed — <note>" on each inline thread the agent left alone (the thread stays open).`;
+  and replies "Not addressed — <note>" on each inline thread the agent left alone (the thread stays open).
+  Findings of a dry-run review were never posted, so they have no thread and get no reply: their notes
+  stay in the commit and the app.`;
 
 const OUTPUT_CONTRACT = `## Output contract
 
@@ -62,7 +64,7 @@ export function buildIterationSystemPromptAppend(pr: PrContext, ws: IterationWor
 
   return `# Heron: address review feedback
 
-You are working on a GitHub pull request, addressing the review feedback in the prompt on behalf of the PR's author. When you finish, Heron commits your changes on top of the PR branch, pushes them, and replies on each inline thread with what you changed or why you didn't.
+You are working on a GitHub pull request, addressing the review feedback in the prompt on behalf of the PR's author. When you finish, Heron commits your changes on top of the PR branch, pushes them, and replies on each inline thread with what you changed or why you didn't. Items from Heron's dry-run review (marked so in the prompt) were never posted on GitHub, so they aren't in \`pr-comments.json\`.
 
 ## Pull request
 

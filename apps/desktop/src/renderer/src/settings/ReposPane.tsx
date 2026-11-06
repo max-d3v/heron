@@ -288,6 +288,18 @@ function IterationFields({
         />
       </Field>
 
+      <Field
+        label="Dry runs"
+        hint={`Iterate without polluting the PR: a dry-run review's findings go to the agent like comments would, but the review is never posted. The PR only gets the fix commit: no review comments, no replies.${
+          repo.iterationDryRuns && (!repo.reviewEnabled || !repo.dryRun) ? " Turn on reviews with Dry run checked for this to apply." : ""
+        }`}
+      >
+        <label className="flex items-center gap-2 text-[13px]">
+          <Checkbox checked={repo.iterationDryRuns} onChange={(v) => onPatch({ iterationDryRuns: v })} />
+          Iterate on dry-run reviews
+        </label>
+      </Field>
+
       <Field label="Profile">
         <Select
           value={repo.iterationProfileId === null ? "default" : String(repo.iterationProfileId)}

@@ -46,6 +46,8 @@ export interface SchedulerDeps {
   requestPoll: () => void;
   /** Iterations show in the queue status. */
   iterations: () => { running: number; readyToPush: number };
+  /** Iterations may take up a dry run's held-back review (§15.3): when it finishes, and when it's posted by hand. */
+  dryRuns: { finished(review: Review): void; posted(review: Review): void };
 }
 
 interface ActiveRun {
@@ -344,7 +346,9 @@ export class Scheduler {
   /** Post a dry run's held-back review (§6.5). */
   async post(reviewId: number): Promise<Review> {
     try {
-      return await this.d.pipeline.postHeld(reviewId);
+      const posted = await this.d.pipeline.postHeld(reviewId);
+      if (posted.state === "posted") this.d.dryRuns.posted(posted);
+      return posted;
     } catch (err) {
       // Refused, often because GitHub saw a push or a close the poller hasn't caught up with yet.
       this.d.requestPoll();
@@ -434,6 +438,7 @@ export class Scheduler {
       const title = isHeldBack(review.state, review.payload) ? "Review ready (dry run)" : "No issues found";
       this.d.notify({ title, body: `#${pr.number} ${pr.title}`, prId: pr.id });
     }
+    if (isHeldBack(review.state, review.payload)) this.d.dryRuns.finished(review);
   }
 
   private onFailure(reviewId: number, err: unknown, signal: AbortSignal): void {

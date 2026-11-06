@@ -236,4 +236,9 @@ export const MIGRATIONS: readonly string[] = [
   /* 8: comments in an inline thread resolved on GitHub are set aside (handled), and come back if it's unresolved */ `
   ALTER TABLE feedback ADD COLUMN set_aside_resolved INTEGER NOT NULL DEFAULT 0;
   `,
+  /* 9: iterations can take a dry-run review's findings straight from Heron, never posted (off by default).
+        Those feedback rows point at their review and have a made-up, negative github_id. */ `
+  ALTER TABLE repos ADD COLUMN iteration_dry_runs INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE feedback ADD COLUMN review_id INTEGER REFERENCES reviews(id) ON DELETE CASCADE;
+  `,
 ];
