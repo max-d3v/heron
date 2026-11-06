@@ -357,7 +357,7 @@ export class Pipeline {
    * Post a dry run's held-back review (§6.5): only the PR's latest run, and only while its
    * commit is the open PR's head. It moves to `posted`. Throws, leaving the run `completed`
    * so it can be posted again, when it can't be posted or the post fails. `guard` runs right
-   * before posting and refuses it by throwing.
+   * before posting, in the same synchronous step as the post starting, and refuses it by throwing.
    */
   async postHeld(reviewId: number, guard?: () => void): Promise<Review> {
     const review = this.d.db.getReview(reviewId);

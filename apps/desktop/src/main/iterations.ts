@@ -71,6 +71,15 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const WAITING: ReadonlySet<IterationState> = new Set(["debouncing", "awaiting_start", "held"]);
 
 /**
+ * The batches that hold on to their claimed comments: past waiting (in triage, running, or a
+ * result), or a live Re-run whatever its state. A sync's resolved threads, a newer dry run and a
+ * posted dry run leave those comments alone.
+ */
+function holdingIterationIds(its: readonly Iteration[]): Set<number> {
+  return new Set(its.filter((i) => isIterationActive(i.state) && (!WAITING.has(i.state) || i.trigger === "rerun")).map((i) => i.id));
+}
+
+/**
  * Owns iterations (§15): keeps each eligible PR's comments in `feedback`, batches the
  * unhandled ones after a debounce, triages them, and runs the agent, commit, push and
  * replies through the pipeline. Shares the review queue's pauses; its parallel-run slots
@@ -217,7 +226,7 @@ export class IterationScheduler {
       const pr = this.d.db.getPr(review.prId);
       if (!pr || review.headSha !== pr.headSha) return;
       const why = review.state === "posted" ? "Replaced by a newer posted review" : "A newer review found nothing";
-      if (!this.dropDryRunFindings(pr, (f) => f.reviewId !== review.id, why)) return;
+      if (this.dropDryRunFindings(pr, (f) => f.reviewId !== review.id, why).length === 0) return;
     }
     // A batch still debouncing on set-aside findings alone has nothing left to triage.
     this.plan(review.prId);
@@ -258,18 +267,57 @@ export class IterationScheduler {
     const { db } = this.d;
     const review = db.getReview(reviewId);
     if (!review) return false;
-    const its = db.listIterationsForPr(review.prId);
-    const busy = new Set(its.filter((i) => isIterationActive(i.state) && (!WAITING.has(i.state) || i.trigger === "rerun")).map((i) => i.id));
-    if (busy.size === 0) return false;
-    return db.listFeedbackForPr(review.prId, "unhandled").some((f) => f.reviewId === reviewId && f.iterationId !== null && busy.has(f.iterationId));
+    const holding = holdingIterationIds(db.listIterationsForPr(review.prId));
+    if (holding.size === 0) return false;
+    return db.listFeedbackForPr(review.prId, "unhandled").some((f) => f.reviewId === reviewId && f.iterationId !== null && holding.has(f.iterationId));
   }
 
-  /** A dry run was posted by hand: its findings come back as GitHub comments at the next sync, so Heron's copies go. */
-  dryRunPosted(review: Review): void {
-    const pr = this.d.db.getPr(review.prId);
-    if (!pr) return;
-    this.dropDryRunFindings(pr, (f) => f.reviewId === review.id, "The dry-run review was posted to GitHub");
-    // A batch still debouncing on those findings alone has nothing left to triage.
+  /**
+   * A dry run is about to be posted by hand: its findings come back as GitHub comments at the next
+   * sync, so Heron's copies go now, before the post starts, so no batch can take them past waiting
+   * while it's in flight. Checks and sets aside in one synchronous step. Returns the ids set aside,
+   * or null (nothing set aside) when a batch already holds some of them and the post must be refused.
+   */
+  dryRunPosting(reviewId: number): number[] | null {
+    const { db } = this.d;
+    if (this.dryRunHeld(reviewId)) return null;
+    const review = db.getReview(reviewId);
+    const pr = review ? db.getPr(review.prId) : null;
+    if (!review || !pr) return [];
+    const rows = this.dropDryRunFindings(pr, (f) => f.reviewId === review.id, "The dry-run review is being posted to GitHub");
+    if (rows.length > 0) {
+      // A batch still debouncing on those findings alone has nothing left to triage.
+      this.plan(pr.id);
+      this.tick();
+    }
+    return rows.map((f) => f.id);
+  }
+
+  /**
+   * Posting the dry run failed: the findings `dryRunPosting` set aside come back, unclaimed, while
+   * the review is still the PR's latest run of its head and dry-run iterations are on.
+   */
+  dryRunPostFailed(reviewId: number, ids: number[]): void {
+    const { db, store } = this.d;
+    if (ids.length === 0) return;
+    const review = db.getReview(reviewId);
+    const pr = review ? db.getPr(review.prId) : null;
+    if (!review || !pr || review.state !== "completed" || review.headSha !== pr.headSha) return;
+    if (db.listReviewsForPr(pr.id)[0]?.id !== review.id || !this.eligibleRepo(pr)?.iterationDryRuns) return;
+    const wanted = new Set(ids);
+    const rows = db.listFeedbackForPr(pr.id, "handled").filter((f) => wanted.has(f.id));
+    if (rows.length === 0) return;
+    db.updateFeedback(
+      rows.map((f) => f.id),
+      { status: "unhandled", handledAt: null, iterationId: null, verdict: null, reason: null },
+    );
+    store.activity({
+      prId: pr.id,
+      reviewId: review.id,
+      kind: "feedback.unresolved",
+      message: `${plural(rows.length, "dry-run finding")} back: posting the review failed`,
+      data: { ids: rows.map((f) => f.id) },
+    });
     this.plan(pr.id);
     this.tick();
   }
@@ -277,17 +325,17 @@ export class IterationScheduler {
   /**
    * Set aside the unhandled dry-run findings `which` picks that no batch has taken past waiting:
    * unclaimed ones, those left by a finished batch, and those of a batch still debouncing, waiting
-   * for Iterate or held (a Re-run keeps its own). A waiting batch left with nothing ends.
+   * for Iterate or held (a Re-run keeps its own). A waiting batch left with nothing ends. Returns
+   * the rows set aside.
    */
-  private dropDryRunFindings(pr: Pr, which: (f: Feedback) => boolean, why: string): boolean {
+  private dropDryRunFindings(pr: Pr, which: (f: Feedback) => boolean, why: string): Feedback[] {
     const { db, store } = this.d;
     const its = db.listIterationsForPr(pr.id);
-    const waiting = new Set(its.filter((i) => WAITING.has(i.state) && i.trigger !== "rerun").map((i) => i.id));
-    const live = new Set(its.filter((i) => isIterationActive(i.state)).map((i) => i.id));
+    const holding = holdingIterationIds(its);
     const rows = db
       .listFeedbackForPr(pr.id, "unhandled")
-      .filter((f) => f.reviewId !== null && which(f) && (f.iterationId === null || !live.has(f.iterationId) || waiting.has(f.iterationId)));
-    if (rows.length === 0) return false;
+      .filter((f) => f.reviewId !== null && which(f) && (f.iterationId === null || !holding.has(f.iterationId)));
+    if (rows.length === 0) return [];
     db.updateFeedback(
       rows.map((f) => f.id),
       { status: "handled", handledAt: Date.now() },
@@ -295,12 +343,13 @@ export class IterationScheduler {
     store.activity({ prId: pr.id, reviewId: null, kind: "feedback.resolved", message: `Set aside ${plural(rows.length, "dry-run finding")}: ${why.toLowerCase()}` });
     const emptied = new Set(rows.map((f) => f.iterationId));
     for (const it of its) {
-      if (!waiting.has(it.id) || !emptied.has(it.id)) continue;
+      // Every active batch not holding its comments is a non-Re-run one still waiting.
+      if (!isIterationActive(it.state) || holding.has(it.id) || !emptied.has(it.id)) continue;
       if (db.listFeedbackForIteration(it.id).some((f) => f.status === "unhandled")) continue;
       // A debouncing batch only holds claimed rows on a triage retry; it can't skip before its triage.
       store.transitionIteration(it, it.state === "debouncing" ? "cancelled" : "skipped", { patch: { finishedAt: Date.now(), runAfter: null }, message: why });
     }
-    return true;
+    return rows;
   }
 
   // ── feedback sync ─────────────────────────────────────────────────────────
@@ -366,8 +415,8 @@ export class IterationScheduler {
   private followResolution(pr: Pr, threads: ReviewThreads): void {
     const { db, store } = this.d;
     const its = db.listIterationsForPr(pr.id);
-    const busy = new Set(its.filter((i) => isIterationActive(i.state) && (!WAITING.has(i.state) || i.trigger === "rerun")).map((i) => i.id));
-    const free = db.listFeedbackForPr(pr.id, "unhandled").filter((f) => f.iterationId === null || !busy.has(f.iterationId));
+    const holding = holdingIterationIds(its);
+    const free = db.listFeedbackForPr(pr.id, "unhandled").filter((f) => f.iterationId === null || !holding.has(f.iterationId));
     const resolved = inResolvedThreads(free, threads);
     setAsideResolved(db, store, pr.id, resolved);
     // Only a thread GitHub still lists and shows open comes back.

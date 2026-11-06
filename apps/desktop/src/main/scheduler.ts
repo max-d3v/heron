@@ -48,11 +48,17 @@ export interface SchedulerDeps {
   iterations: () => { running: number; readyToPush: number };
   /**
    * Iterations follow the reviews that finish `completed` or `posted` (§15.3): they take up a dry
-   * run's held-back review, set aside earlier dry-run findings once a newer review of the head
-   * replaces them, and set aside a dry run's own findings when it's posted by hand. `held` is
-   * true while a batch past waiting holds a dry run's findings, which refuses posting it (§6.5).
+   * run's held-back review and set aside earlier dry-run findings once a newer review of the head
+   * replaces them. `held` is true while a batch past waiting holds a dry run's findings, which
+   * refuses posting it (§6.5). `posting` checks that and sets aside the dry run's own findings in
+   * one step, right before the post starts (null: refused); `postFailed` brings them back.
    */
-  dryRuns: { finished(review: Review): void; posted(review: Review): void; held(reviewId: number): boolean };
+  dryRuns: {
+    finished(review: Review): void;
+    held(reviewId: number): boolean;
+    posting(reviewId: number): number[] | null;
+    postFailed(reviewId: number, ids: number[]): void;
+  };
 }
 
 interface ActiveRun {
@@ -351,16 +357,19 @@ export class Scheduler {
 
   /** Post a dry run's held-back review (§6.5). */
   async post(reviewId: number): Promise<Review> {
-    // Checked again just before posting: a batch may start its triage while GitHub is asked for the head.
-    const notHeld = () => {
-      if (this.d.dryRuns.held(reviewId)) throw new Error(ITERATING);
+    if (this.d.dryRuns.held(reviewId)) throw new Error(ITERATING);
+    // Checked again just before posting (a batch may start its triage while GitHub is asked for the
+    // head), and the findings set aside in the same step, so none can start while the post is in flight.
+    let setAside: number[] = [];
+    const claim = () => {
+      const ids = this.d.dryRuns.posting(reviewId);
+      if (!ids) throw new Error(ITERATING);
+      setAside = ids;
     };
-    notHeld();
     try {
-      const posted = await this.d.pipeline.postHeld(reviewId, notHeld);
-      if (posted.state === "posted") this.d.dryRuns.posted(posted);
-      return posted;
+      return await this.d.pipeline.postHeld(reviewId, claim);
     } catch (err) {
+      this.d.dryRuns.postFailed(reviewId, setAside);
       // Refused, often because GitHub saw a push or a close the poller hasn't caught up with yet.
       this.d.requestPoll();
       throw err;

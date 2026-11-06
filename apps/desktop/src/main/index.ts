@@ -161,8 +161,9 @@ async function main(): Promise<void> {
     iterations: () => ({ running: iterations.runningCount, readyToPush: iterations.readyToPush() }),
     dryRuns: {
       finished: (review) => iterations.reviewFinished(review),
-      posted: (review) => iterations.dryRunPosted(review),
       held: (reviewId) => iterations.dryRunHeld(reviewId),
+      posting: (reviewId) => iterations.dryRunPosting(reviewId),
+      postFailed: (reviewId, ids) => iterations.dryRunPostFailed(reviewId, ids),
     },
   });
   iterations = new IterationScheduler({
