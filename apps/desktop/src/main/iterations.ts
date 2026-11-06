@@ -295,7 +295,9 @@ export class IterationScheduler {
 
   /**
    * Posting the dry run failed: the findings `dryRunPosting` set aside come back, unclaimed, while
-   * the review is still the PR's latest run of its head and dry-run iterations are on.
+   * the review is still the PR's latest run of its head. Whatever the repo's settings: recording the
+   * review again later adds nothing (the rows already exist), and `candidates` hides them while
+   * dry-run iterations are off.
    */
   dryRunPostFailed(reviewId: number, ids: number[]): void {
     const { db, store } = this.d;
@@ -303,7 +305,7 @@ export class IterationScheduler {
     const review = db.getReview(reviewId);
     const pr = review ? db.getPr(review.prId) : null;
     if (!review || !pr || review.state !== "completed" || review.headSha !== pr.headSha) return;
-    if (db.listReviewsForPr(pr.id)[0]?.id !== review.id || !this.eligibleRepo(pr)?.iterationDryRuns) return;
+    if (db.listReviewsForPr(pr.id)[0]?.id !== review.id) return;
     const wanted = new Set(ids);
     const rows = db.listFeedbackForPr(pr.id, "handled").filter((f) => wanted.has(f.id));
     if (rows.length === 0) return;
