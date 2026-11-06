@@ -91,6 +91,11 @@ export interface Repo {
   iterationProfileId: number | null;
   iterationAutoPush: boolean;
   iterationReply: boolean;
+  /**
+   * A dry-run review that found something becomes feedback for an iteration directly, without
+   * being posted (off by default). Nothing reaches the PR but the iteration's commit.
+   */
+  iterationDryRuns: boolean;
   /** Run in the iteration worktree before the agent (e.g. `pnpm install`). Not used with a local checkout. */
   setupCommand: string | null;
   /** Iterate in the user's own checkout (`localCheckoutPath`) instead of a worktree of Heron's clone. */
@@ -269,6 +274,12 @@ export interface ObservedFeedback {
 export interface Feedback extends Omit<ObservedFeedback, "heronReply"> {
   id: number;
   prId: number;
+  /**
+   * Set for a finding of Heron's own dry-run review with this id, which was never posted: it has
+   * no comment or thread on GitHub (its `githubId` is made up, see `dryRunFeedbackId`). Null for
+   * comments fetched from GitHub.
+   */
+  reviewId: number | null;
   verdict: TriageVerdict | null;
   reason: string | null;
   /** The iteration that claimed it (the latest one). */
@@ -287,6 +298,8 @@ export interface IterationItem {
   threadRootId: number;
   /** The claimed feedback rows it stands for. */
   feedbackIds: number[];
+  /** A finding of this dry-run review, with no thread on GitHub (null for GitHub comments). */
+  reviewId: number | null;
   path: string | null;
   line: number | null;
   outdated: boolean;

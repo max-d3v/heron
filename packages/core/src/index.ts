@@ -5,5 +5,6 @@ export * from "./errors.ts";
 export * from "./triggers.ts";
 export * from "./review-output.ts";
 export * from "./iteration-output.ts";
+export * from "./dry-run-feedback.ts";
 export * from "./diff.ts";
 export * from "./issue-copy-prompt.ts";

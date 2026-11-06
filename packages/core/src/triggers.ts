@@ -1,4 +1,4 @@
-import type { IterationComments, Pr, Repo, RepoScope, Review } from "./types.ts";
+import type { Feedback, IterationComments, Pr, Repo, RepoScope, Review } from "./types.ts";
 
 /** A PR as seen in GitHub's open-PR list. */
 export interface ObservedPr {
@@ -133,4 +133,19 @@ export function iterationEligibility(repo: Repo, pr: Pr, viewerLogin: string | n
 export function feedbackCounts(comments: IterationComments, author: string, viewerLogin: string | null): boolean {
   if (comments === "all") return true;
   return viewerLogin !== null && sameLogin(author, viewerLogin);
+}
+
+/**
+ * Can this feedback row go into the PR's next iteration batch? It's unhandled, no live iteration
+ * (`liveIterationIds`) has claimed it, it counts under the repo's iteration comments, and a dry-run
+ * finding counts only while `iterationDryRuns` is on. The planner and the Iteration tab's
+ * "waiting for the next batch" list share it so the two agree.
+ */
+export function isIterationCandidate(f: Feedback, repo: Repo, viewerLogin: string | null, liveIterationIds: ReadonlySet<number>): boolean {
+  return (
+    f.status === "unhandled" &&
+    (f.iterationId === null || !liveIterationIds.has(f.iterationId)) &&
+    (f.reviewId === null || repo.iterationDryRuns) &&
+    feedbackCounts(repo.iterationComments, f.author, viewerLogin)
+  );
 }
