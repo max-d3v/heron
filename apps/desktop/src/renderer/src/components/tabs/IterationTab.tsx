@@ -10,7 +10,7 @@ import { client, errorText, orpc } from "../../lib/rpc";
 import { DiffView } from "../DiffView";
 import { Markdown } from "../Markdown";
 import { ButtonTip } from "../PrDetail";
-import { Badge, Button, Confirm, Empty, ErrorNote, Spinner } from "../ui";
+import { Badge, Button, Confirm, Empty, ErrorNote, Spinner, Tooltip } from "../ui";
 import { StepList } from "./ReviewTab";
 
 const PAUSED_TIP = "Resume iterations on this PR to run";
@@ -111,7 +111,8 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
         !showFeedback && (
           <div className="flex flex-col items-center pt-12">
             <Empty icon={<MessagesSquare className="size-7" />} title="No feedback to address">
-              {COMMENTS_EMPTY[p.comments]},{" "}
+              {COMMENTS_EMPTY[p.comments]}
+              {p.dryRuns ? " or a dry-run review finds something" : ""},{" "}
               {p.autoStart
                 ? "an agent addresses the comments and Heron commits the changes."
                 : "Heron triages the comments and waits for you to click Iterate."}
@@ -151,6 +152,9 @@ function PauseButton({ paused, enabled, busy, onClick }: { paused: boolean; enab
 function FeedbackSection({ pr, panel, readyId, pauseButton }: { pr: PrDetail; panel: FeedbackPanel; readyId: number | null; pauseButton: ReactNode }) {
   const now = useNow(5_000);
   const iterate = useMutation(orpc.iterations.iterate.mutationOptions());
+  // The same Cancel as on a queued or running iteration. The section lists every open batch's comments, so it stops them all.
+  const cancel = useMutation({ mutationFn: (ids: number[]) => Promise.all(ids.map((id) => client.iterations.cancel({ id }))) });
+  const error = iterate.error ?? cancel.error;
   const batch = panel.batches[0]!;
   const waiting = panel.batches.find((b) => b.state === "awaiting_start") ?? null;
   const toChange = panel.groups.filter((g) => g.verdict === "change").length;
@@ -171,6 +175,9 @@ function FeedbackSection({ pr, panel, readyId, pauseButton }: { pr: PrDetail; pa
         <span className="min-w-0 truncate text-[12px] text-fg-2">{status}</span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {pauseButton}
+          <Button size="sm" icon={<Square className="size-3" />} busy={cancel.isPending} onClick={() => cancel.mutate(panel.batches.map((b) => b.id))}>
+            Cancel
+          </Button>
           {waiting && (
             <ButtonTip
               content={
@@ -197,7 +204,7 @@ function FeedbackSection({ pr, panel, readyId, pauseButton }: { pr: PrDetail; pa
           )}
         </div>
       </div>
-      {iterate.error && <ErrorNote>{errorText(iterate.error)}</ErrorNote>}
+      {error && <ErrorNote>{errorText(error)}</ErrorNote>}
       <div className="overflow-hidden rounded-[10px] bg-content shadow-[0_0_0_0.5px_var(--line-strong)]">
         {panel.groups.length === 0 ? (
           <div className="px-4 py-3 text-[12.5px] text-fg-3">No comments in this batch.</div>
@@ -209,9 +216,22 @@ function FeedbackSection({ pr, panel, readyId, pauseButton }: { pr: PrDetail; pa
   );
 }
 
-function location(g: { kind: FeedbackGroupDto["kind"]; path: string | null; line: number | null }): string {
+function location(g: { kind: FeedbackGroupDto["kind"]; dryRun: boolean; path: string | null; line: number | null }): string {
   if (g.kind === "inline") return g.line ? `${g.path}:${g.line}` : (g.path ?? "Inline comment");
+  if (g.dryRun) return "Dry-run review";
   return g.kind === "review" ? "Review" : "Conversation";
+}
+
+/** A finding of Heron's dry-run review: it was never posted, so there's nothing to open on GitHub. */
+function DryRunBadge({ dryRun }: { dryRun: boolean }) {
+  if (!dryRun) return null;
+  return (
+    <Tooltip content="From Heron's dry-run review, never posted to GitHub">
+      <span className="inline-flex shrink-0">
+        <Badge tone="teal">Dry run</Badge>
+      </span>
+    </Tooltip>
+  );
 }
 
 function Verdict({ verdict }: { verdict: FeedbackGroupDto["verdict"] }) {
@@ -235,6 +255,7 @@ function FeedbackRow({ group, first }: { group: FeedbackGroupDto; first: boolean
       <div className="flex items-center gap-2 text-[11.5px]">
         <span className="selectable min-w-0 truncate font-mono text-fg-2">{location(group)}</span>
         {group.outdated && <Badge>Outdated</Badge>}
+        <DryRunBadge dryRun={group.dryRun} />
         <span className="ml-auto flex shrink-0 items-center gap-2">
           <Verdict verdict={group.verdict} />
           <OpenLink url={group.url} label="Open on GitHub" />
@@ -401,7 +422,9 @@ function FinishedIteration({ pr, summary, on, paused, pauseButton }: RunProps) {
   if (detail.isError) return <ErrorNote>{errorText(detail.error)}</ErrorNote>;
   const it = detail.data;
   const busy = pr.iterations.some((i) => i.id !== it.id && (isInFlightIteration(i) || i.state === "queued"));
-  const canRerun = pr.state === "open" && it.state !== "stale" && it.state !== "skipped" && !busy;
+  // A batch cancelled (or failed) before triage finished has no comments marked for a change: they join the next batch instead.
+  const untriaged = it.startedAt === null && it.triageTotal === 0;
+  const canRerun = pr.state === "open" && it.state !== "stale" && it.state !== "skipped" && !untriaged && !busy;
   const error = push.error ?? discard.error ?? uncommit.error ?? rerun.error ?? rerunInWorktree.error ?? openInClaude.error;
   // A worktree iteration's folder goes when the PR closes, and the session can't continue without it.
   const canOpen = it.sessionId !== null && (it.cwdKind === "local" || pr.state === "open");
@@ -612,6 +635,7 @@ function ItemRow({ item, first }: { item: IterationDetail["items"][number]; firs
           <span className="font-mono">{item.number}.</span>
           <span className="selectable min-w-0 truncate font-mono">{location(item)}</span>
           {item.outdated && <Badge>Outdated</Badge>}
+          <DryRunBadge dryRun={item.dryRun} />
           {author && <span className="shrink-0 text-fg-3">@{author}</span>}
           <span className="ml-auto flex shrink-0 items-center gap-2">
             {item.comments.length > 0 && (

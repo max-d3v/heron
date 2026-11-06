@@ -46,6 +46,19 @@ export interface SchedulerDeps {
   requestPoll: () => void;
   /** Iterations show in the queue status. */
   iterations: () => { running: number; readyToPush: number };
+  /**
+   * Iterations follow the reviews that finish `completed` or `posted` (§15.3): they take up a dry
+   * run's held-back review and set aside earlier dry-run findings once a newer review of the head
+   * replaces them. `held` is true while a batch past waiting holds a dry run's findings, which
+   * refuses posting it (§6.5). `posting` checks that and sets aside the dry run's own findings in
+   * one step, right before the post starts (null: refused); `postFailed` brings them back.
+   */
+  dryRuns: {
+    finished(review: Review): void;
+    held(reviewId: number): boolean;
+    posting(reviewId: number): number[] | null;
+    postFailed(reviewId: number, ids: number[]): void;
+  };
 }
 
 interface ActiveRun {
@@ -55,6 +68,7 @@ interface ActiveRun {
 }
 
 const short = (sha: string) => sha.slice(0, 7);
+const ITERATING = "An iteration is working on these findings.";
 
 /**
  * Owns the queue: turns PR changes into owed reviews (§5), runs up to N pipelines
@@ -343,9 +357,19 @@ export class Scheduler {
 
   /** Post a dry run's held-back review (§6.5). */
   async post(reviewId: number): Promise<Review> {
+    if (this.d.dryRuns.held(reviewId)) throw new Error(ITERATING);
+    // Checked again just before posting (a batch may start its triage while GitHub is asked for the
+    // head), and the findings set aside in the same step, so none can start while the post is in flight.
+    let setAside: number[] = [];
+    const claim = () => {
+      const ids = this.d.dryRuns.posting(reviewId);
+      if (!ids) throw new Error(ITERATING);
+      setAside = ids;
+    };
     try {
-      return await this.d.pipeline.postHeld(reviewId);
+      return await this.d.pipeline.postHeld(reviewId, claim);
     } catch (err) {
+      this.d.dryRuns.postFailed(reviewId, setAside);
       // Refused, often because GitHub saw a push or a close the poller hasn't caught up with yet.
       this.d.requestPoll();
       throw err;
@@ -434,6 +458,8 @@ export class Scheduler {
       const title = isHeldBack(review.state, review.payload) ? "Review ready (dry run)" : "No issues found";
       this.d.notify({ title, body: `#${pr.number} ${pr.title}`, prId: pr.id });
     }
+    // A clean or posted review of the head replaces earlier dry-run findings too, not only a held-back one.
+    if (review.state === "completed" || review.state === "posted") this.d.dryRuns.finished(review);
   }
 
   private onFailure(reviewId: number, err: unknown, signal: AbortSignal): void {

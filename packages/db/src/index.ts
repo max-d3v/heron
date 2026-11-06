@@ -65,6 +65,7 @@ function toRepo(r: Row): Repo {
     iterationProfileId: num(r.iteration_profile_id),
     iterationAutoPush: bool(r.iteration_auto_push),
     iterationReply: bool(r.iteration_reply),
+    iterationDryRuns: bool(r.iteration_dry_runs),
     setupCommand: str(r.setup_command),
     useLocalCheckout: bool(r.use_local_checkout),
     localCheckoutPath: str(r.local_checkout_path),
@@ -186,7 +187,8 @@ function toIteration(r: Row): Iteration {
     resolvedModel: str(r.resolved_model),
     transcriptPath: str(r.transcript_path),
     cwdKind: (r.cwd_kind as CwdKind | null) ?? null,
-    items: json<IterationItem[]>(r.items_json),
+    // Items saved before dry-run findings existed are all GitHub comments.
+    items: json<IterationItem[]>(r.items_json)?.map((i) => ({ ...i, reviewId: i.reviewId ?? null })) ?? null,
     output: json<IterationOutput>(r.output_json),
     rawOutput: str(r.raw_output),
     commitSha: str(r.commit_sha),
@@ -206,6 +208,7 @@ function toFeedback(r: Row): Feedback {
   return {
     id: Number(r.id),
     prId: Number(r.pr_id),
+    reviewId: num(r.review_id),
     githubId: Number(r.github_id),
     kind: r.kind as FeedbackKind,
     threadRootId: Number(r.thread_root_id),
@@ -463,6 +466,7 @@ export class HeronDb {
         | "iterationProfileId"
         | "iterationAutoPush"
         | "iterationReply"
+        | "iterationDryRuns"
         | "setupCommand"
         | "useLocalCheckout"
         | "localCheckoutPath"
@@ -486,6 +490,7 @@ export class HeronDb {
     if (patch.iterationProfileId !== undefined) cols.iteration_profile_id = patch.iterationProfileId;
     if (patch.iterationAutoPush !== undefined) cols.iteration_auto_push = patch.iterationAutoPush ? 1 : 0;
     if (patch.iterationReply !== undefined) cols.iteration_reply = patch.iterationReply ? 1 : 0;
+    if (patch.iterationDryRuns !== undefined) cols.iteration_dry_runs = patch.iterationDryRuns ? 1 : 0;
     if (patch.setupCommand !== undefined) cols.setup_command = patch.setupCommand;
     if (patch.useLocalCheckout !== undefined) cols.use_local_checkout = patch.useLocalCheckout ? 1 : 0;
     if (patch.localCheckoutPath !== undefined) cols.local_checkout_path = patch.localCheckoutPath;
@@ -920,16 +925,19 @@ export class HeronDb {
 
   // ── feedback ────────────────────────────────────────────────────────────
 
-  /** Record comments seen on GitHub. New ones are inserted; known ones only get their text refreshed. Returns the new rows. */
-  upsertFeedback(prId: number, observed: ObservedFeedback[]): Feedback[] {
+  /**
+   * Record comments seen on GitHub, or (with `reviewId`) the findings of that dry-run review. New ones
+   * are inserted; known ones only get their text refreshed. Returns the new rows.
+   */
+  upsertFeedback(prId: number, observed: ObservedFeedback[], reviewId: number | null = null): Feedback[] {
     return this.tx(() => {
       const now = Date.now();
       const find = this.sql.prepare("SELECT id FROM feedback WHERE pr_id = ? AND kind = ? AND github_id = ?");
       const refresh = this.sql.prepare("UPDATE feedback SET body = ?, line = ?, outdated = ? WHERE id = ?");
       const insert = this.sql.prepare(
-        `INSERT INTO feedback (pr_id, github_id, kind, thread_root_id, author, body, url, path, line, outdated, diff_hunk,
+        `INSERT INTO feedback (pr_id, review_id, github_id, kind, thread_root_id, author, body, url, path, line, outdated, diff_hunk,
                                review_state, created_at, status, observed_at)
-         VALUES (@prId, @githubId, @kind, @threadRootId, @author, @body, @url, @path, @line, @outdated, @diffHunk,
+         VALUES (@prId, @reviewId, @githubId, @kind, @threadRootId, @author, @body, @url, @path, @line, @outdated, @diffHunk,
                  @reviewState, @createdAt, @status, @now)`,
       );
       const added: Feedback[] = [];
@@ -941,6 +949,7 @@ export class HeronDb {
         }
         const info = insert.run({
           prId,
+          reviewId,
           githubId: o.githubId,
           kind: o.kind,
           threadRootId: o.threadRootId,

@@ -1,8 +1,8 @@
 import {
-  feedbackCounts,
   isHeldBack,
   isInScope,
   isIterationActive,
+  isIterationCandidate,
   reviewsAutomatically,
   isTerminal,
   iterationEligibility,
@@ -178,6 +178,7 @@ export function toRepoDto(db: HeronDb, repo: Repo): RepoDto {
     iterationProfileId: repo.iterationProfileId,
     iterationAutoPush: repo.iterationAutoPush,
     iterationReply: repo.iterationReply,
+    iterationDryRuns: repo.iterationDryRuns,
     setupCommand: repo.setupCommand,
     useLocalCheckout: repo.useLocalCheckout,
     localCheckoutPath: repo.localCheckoutPath,
@@ -235,6 +236,7 @@ export function toIterationDetail(db: HeronDb, it: Iteration, repo: Repo): Itera
       return {
         number: item.number,
         kind: item.kind,
+        dryRun: item.reviewId !== null,
         path: item.path,
         line: item.line,
         outdated: item.outdated,
@@ -261,7 +263,7 @@ export function toFeedbackPanel(db: HeronDb, pr: Pr, repo: Repo, viewerLogin: st
     (f) =>
       f.status !== "ignored" &&
       ((f.iterationId !== null && batchIds.has(f.iterationId)) ||
-        (f.status === "unhandled" && (f.iterationId === null || !live.has(f.iterationId)) && feedbackCounts(repo.iterationComments, f.author, viewerLogin))),
+        isIterationCandidate(f, repo, viewerLogin, live)),
   );
   const groups = orderFeedbackItems(groupFeedback(rows, all)).map((g) => {
     const pending = g.rows.some((r) => r.verdict === null);
@@ -269,6 +271,7 @@ export function toFeedbackPanel(db: HeronDb, pr: Pr, repo: Repo, viewerLogin: st
     return {
       key: g.key,
       kind: g.kind,
+      dryRun: g.reviewId !== null,
       path: g.path,
       line: g.line,
       outdated: g.outdated,
@@ -284,6 +287,7 @@ export function toFeedbackPanel(db: HeronDb, pr: Pr, repo: Repo, viewerLogin: st
     reason: eligibility.ok ? null : eligibility.reason,
     autoStart: repo.iterationAutoStart,
     comments: repo.iterationComments,
+    dryRuns: repo.iterationDryRuns,
     loopCapped: pr.heronPushStreak >= settings.loopCap,
     pushStreak: pr.heronPushStreak,
     pausedAt: pr.iterationPausedAt,

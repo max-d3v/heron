@@ -12,6 +12,8 @@ export interface FeedbackGroup {
   key: string;
   kind: FeedbackKind;
   threadRootId: number;
+  /** A finding of this dry-run review (no thread on GitHub); null for GitHub comments. */
+  reviewId: number | null;
   /** The rows this group stands for in a batch. */
   rows: Feedback[];
   /** Every comment of the thread, whatever its status, oldest first. */
@@ -39,6 +41,7 @@ export function groupFeedback(rows: Feedback[], all: Feedback[]): FeedbackGroup[
       key,
       kind: root.kind,
       threadRootId: root.threadRootId,
+      reviewId: root.reviewId,
       rows: members,
       thread: thread.length > 0 ? thread : members,
       path: root.path,
@@ -52,9 +55,10 @@ export function groupFeedback(rows: Feedback[], all: Feedback[]): FeedbackGroup[
   });
 }
 
-/** How a comment's author shows in prompts: the PR's author and Heron's own replies are marked. */
+/** How a comment's author shows in prompts: the PR's author, Heron's own replies and its unposted reviews are marked. */
 export function authorLabel(f: Feedback, prAuthor: string): string {
   if (f.status === "ignored") return `${f.author} (Heron, an earlier iteration)`;
+  if (f.reviewId !== null) return `${f.author} (Heron's dry-run review, not posted on GitHub)`;
   if (f.author.toLowerCase() === prAuthor.toLowerCase()) return `${f.author} (PR author)`;
   return f.author;
 }
@@ -68,17 +72,25 @@ export function threadForPrompt(group: FeedbackGroup, prAuthor: string): Array<{
 /** Why a batch ends `skipped` when the threads it held were all resolved on GitHub. */
 export const ALL_RESOLVED = "Every thread left was resolved on GitHub";
 
-/** The PR's inline threads, fetched only when `rows` has an inline comment to check. */
-export async function threadsFor(github: GitHubClient, repo: Repo, pr: Pr, rows: ReadonlyArray<{ kind: FeedbackKind }>): Promise<ReviewThreads> {
-  return rows.some((f) => f.kind === "inline") ? github.listReviewThreads(repo.owner, repo.name, pr.number) : new Map();
+/** An inline comment with a thread on GitHub: not a dry-run finding, which was never posted. */
+const hasThread = (f: { kind: FeedbackKind; reviewId?: number | null }) => f.kind === "inline" && (f.reviewId ?? null) === null;
+
+/** The PR's inline threads, fetched only when `rows` has an inline comment on GitHub to check. */
+export async function threadsFor(
+  github: GitHubClient,
+  repo: Repo,
+  pr: Pr,
+  rows: ReadonlyArray<{ kind: FeedbackKind; reviewId?: number | null }>,
+): Promise<ReviewThreads> {
+  return rows.some(hasThread) ? github.listReviewThreads(repo.owner, repo.name, pr.number) : new Map();
 }
 
 /**
  * The inline comments among `rows` whose thread is resolved on GitHub. A thread GitHub doesn't
- * list (its first comment was deleted, so the ids don't match) counts as open.
+ * list (its first comment was deleted, so the ids don't match) counts as open; dry-run findings have none.
  */
 export function inResolvedThreads(rows: Feedback[], threads: ReviewThreads): Feedback[] {
-  return rows.filter((f) => f.kind === "inline" && threads.get(f.threadRootId)?.resolved === true);
+  return rows.filter((f) => hasThread(f) && threads.get(f.threadRootId)?.resolved === true);
 }
 
 const threadCount = (rows: Feedback[]) => new Set(rows.map(groupKey)).size;

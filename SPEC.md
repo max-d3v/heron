@@ -108,7 +108,7 @@ Dependency rules:
 | `includeDrafts` | Default **off**. Not shown for `manual`. |
 | `profileId` | `null` → default profile |
 | `trustRepoClaudeConfig` | Default **off**. When on, also loads the repo's `.claude/` (`settingSources` gains `project`). |
-| `dryRun` | Default **off**, in the Review section. Reviews run but post nothing (no review, no `heron/review` check); results show in the app only, and the latest one can be posted by hand (§6.5). Iterations have no dry run: **Push** is their gate (§15.2). |
+| `dryRun` | Default **off**, in the Review section. Reviews run but post nothing (no review, no `heron/review` check); results show in the app only, and the latest one can be posted by hand (§6.5). Iterations have no dry run: **Push** is their gate (§15.2). With `iterationDryRuns` on, iterations take up a held-back dry run's findings without posting them (§15.3). |
 | `reviewEnabled` | Turn reviews off for one repo (iterations have their own switch, §15.2) |
 | Iteration fields | See §15.2 |
 
@@ -196,6 +196,7 @@ A held-back dry run (§6.1) keeps its validated review, so it can still go to Gi
 - **Posts the stored review as is** (body and every inline comment), with the same marker check as step 4, so a second click can't post twice.
 - **Success → `posted`**, with the `heron/review` check set to "Review posted" like any posted review. `finishedAt` keeps the time the review finished.
 - **Failure** (network, GitHub refusing the review) leaves the run `completed` and shows the error in the header, so Post can be clicked again; the marker check keeps a retry from posting twice.
+- **Iterations** (`iterationDryRuns`, §15.3): the posted review comes back as GitHub comments at the next sync, so Heron's own copies of its findings are set aside. While a batch past waiting (in triage, running, or a result) or a live Re-run holds any of them, Post is refused ("An iteration is working on these findings"): its comments would come back as new feedback for problems that batch already handles. That's checked again right before posting, in the same step that sets the findings aside, so no batch can take them while the post is in flight. If the post fails, they come back (unclaimed) while the run is still the PR's latest of its head, whatever `iterationDryRuns` is now: recording the run again later adds nothing, and they count only while it's on.
 
 ---
 
@@ -289,7 +290,7 @@ Map SDK messages to `AgentStep`s: `Reading src/auth.ts`, `Searching "token"`, `R
 
 ```
 repos(id, owner, name, scope, include_drafts, profile_id, trust_repo_claude_config, dry_run, review_enabled, iteration_enabled, etag, created_at,
-      iteration_auto_start, iteration_comments, iteration_profile_id, iteration_auto_push, iteration_reply, setup_command, local_checkout_path)
+      iteration_auto_start, iteration_comments, iteration_profile_id, iteration_auto_push, iteration_reply, iteration_dry_runs, setup_command, local_checkout_path)
 prs(id, repo_id, number, title, author, is_draft, head_sha, head_ref, head_repo, base_ref, state, url, updated_at,
     heron_push_streak, iteration_paused_at)
 reviews(id, pr_id, head_sha, state, run_after, attempt, last_error, pid, session_id,
@@ -298,8 +299,8 @@ reviews(id, pr_id, head_sha, state, run_after, attempt, last_error, pid, session
 iterations(id, pr_id, head_sha, state, trigger, run_after, attempt, last_error, pid, session_id,
            profile_snapshot_json, resolved_model, cwd_kind /*worktree|local*/, transcript_path, output_json,
            commit_sha, created_at, updated_at, last_activity_at)
-feedback(id, pr_id, github_id, kind, thread_root_id, author, body, path, line, diff_hunk,
-         verdict, reason, iteration_id, status, created_at, handled_at)    -- one row per GitHub comment
+feedback(id, pr_id, review_id, github_id, kind, thread_root_id, author, body, path, line, diff_hunk,
+         verdict, reason, iteration_id, status, created_at, handled_at)    -- one row per GitHub comment or dry-run finding
 activity(id, pr_id, review_id, iteration_id, ts, kind, message, data_json)  -- append-only timeline
 profiles(id, kind, name, is_default, entry_type, prompt_md, skill_id, model, effort, timeout_min, max_turns)
 skills(id, name, source /*imported|linked*/, path, content_hash)
@@ -390,16 +391,23 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
 | `iterationProfileId` | `null` → default iteration profile |
 | `iterationAutoPush` | Default **off**: the result waits for **Push**. |
 | `iterationReply` | Default **on**: reply on each addressed thread after a push, and on each thread the agent didn't address with its reason. |
+| `iterationDryRuns` | "Iterate on dry-run reviews", default **off**. A held-back dry run's findings become feedback without being posted (§15.3), so the PR gets only the fix commit: no review comments, no replies. Its hint leads with "Iterate without polluting the PR". Only matters while the repo's reviews are on with `dryRun` on; the hint says so when they aren't. |
 | `setupCommand` | e.g. `pnpm install`, run in the iteration worktree before the agent. Disabled, with a note, while `useLocalCheckout` is on. |
 | `useLocalCheckout` | Default **off**: Heron works in its own clone. On: run the agent in your own checkout instead (§15.5). Switching it on reuses the folder chosen before, or opens a folder picker; the path can also be typed. |
 | `localCheckoutPath` | The checkout. It must be a clone of the repo (a remote points at `github.com/<owner>/<name>`), checked when it's saved or switched on. Kept while the switch is off. |
 
 - **Profiles** gain `kind: "review" | "iteration"`, with one default per kind. Iteration profiles have **no entry** (no prompt or skill), only `model`, `effort`, `timeoutMin` (default 30) and `maxTurns` (default 150). Their page shows the fixed prompt and the output contract read-only.
 - **General:** iteration parallel runs (default 2, a cap of their own: iterations and reviews don't share slots), iteration debounce (default 30s), loop cap (default 6).
-- **Dry run:** none for iterations (a repo's dry run is for its reviews only). To post nothing, leave `iterationAutoPush` and `iterationReply` off.
+- **Dry run:** none for iterations (a repo's dry run is for its reviews only). To post nothing, leave `iterationAutoPush` and `iterationReply` off. Iterations can still work from a dry run's findings (`iterationDryRuns`), for PRs that carry the fixes but no review comments.
 
 ### 15.3 Feedback
 - **Kinds:** review bodies, inline review comments, replies in threads, and conversation comments.
+- **Dry-run findings** (`iterationDryRuns` on): when a dry run of the PR's head holds back a review that found something (§6.1), its body and each inline comment become feedback rows of kind `review` and `inline`, with `review_id` set, the viewer as author (Heron's reviews are theirs) and a made-up negative `github_id` (`-(reviewId × 1000 + n)`; 0 is the body), so recording a review twice adds nothing. Comments past 999 are dropped. They count under both `iterationComments` settings and then follow the same path as comments: debounce, triage, the agent.
+  - They have **no thread on GitHub**: no resolved check, no replies, no link. Nothing about them reaches the PR but the commit. Prompts mark their author as Heron's dry-run review, not posted.
+  - **A newer review replaces them:** recording a dry run's findings, or any other review of the PR's head finishing (`completed` with nothing to say, or `posted`), sets aside, as handled, the unhandled findings of earlier dry runs that no batch has taken past waiting (unclaimed, left by a finished batch, or in a non-Re-run batch still debouncing, waiting for Iterate or held). A waiting batch left with nothing ends `skipped` (`cancelled` while debouncing).
+  - **Switching it off** stops them counting: like a change to `iterationComments`, a batch debouncing on them alone ends, and none starts on them. A batch that already claimed them keeps them.
+  - A dry run of an older head (a Re-run of an old SHA) is ignored: the head gets a review of its own.
+  - **Switching it on** (or iterations, with it on) takes up the latest finished review on each open PR, when that's a held-back dry run of its head.
 - **`iterationComments`:**
   - `all`: anyone's, bots included.
   - `mine`: comments under your login, which includes Heron's reviews (they post as you).
@@ -453,6 +461,7 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
 - **Head moved** (a non-fast-forward rejection, or a new `headSha` while in flight or `ready`) → `stale`. A new iteration with the same comments goes straight to `queued`, with no triage and no click.
 - **403 / branch protection** → `failed`, no retry.
 - **Replies** (`iterationReply` on): on each addressed inline thread, `Addressed in abc1234 — <note>` with the hidden marker, then resolve the thread (GraphQL `resolveReviewThread`; a thread that's already resolved is left alone). A reply in a thread Heron resolved is set aside like any reply in a resolved thread, until someone unresolves it (§15.3). On each `not_addressed` inline thread, `Not addressed — <note>` with the marker, and the thread stays open: a reply from the reviewer reopens it (§15.3) and the agent sees its earlier reason in the thread. Not-addressed replies go out with the addressed ones after the push, or right away when there's no commit; a discarded result posts nothing. An item the agent left out of its output gets no reply. Look for the marker first, so a retry never posts twice. A reply or resolve GitHub refuses (deleted comment, no permission) is logged in Activity and doesn't fail the iteration. No reply for review bodies or conversation comments; those notes stay in the app.
+- **Dry-run findings** (§15.3) get no reply, addressed or not: they were never on GitHub. Their notes stay in the commit body and the app.
 - **Loop cap:** Heron records each SHA it pushes. After `loopCap` Heron pushes in a row with no other push, the PR behaves as manual start until someone else pushes, and the Iteration tab says so. If the PR isn't in the repo's review scope, Heron never reviews the iteration commit, so the loop ends after one push anyway.
 
 ### 15.7 States
@@ -477,7 +486,7 @@ any → failed | stale | cancelled
 
 ### 15.8 Data model
 ```
-repos      + iteration_auto_start, iteration_comments, iteration_profile_id, iteration_auto_push, iteration_reply, setup_command, local_checkout_path
+repos      + iteration_auto_start, iteration_comments, iteration_profile_id, iteration_auto_push, iteration_reply, iteration_dry_runs, setup_command, local_checkout_path
 profiles   + kind ('review' | 'iteration'); one default per kind
 prs        + head_repo (fork detection), heron_push_streak (loop cap), feedback_synced_at, iteration_paused_at (§15.10)
 iterations(id, pr_id, state, trigger_kind, head_sha, run_after, attempt, retry_step, last_error, pid, session_id,
@@ -485,14 +494,18 @@ iterations(id, pr_id, state, trigger_kind, head_sha, run_after, attempt, retry_s
            commit_sha, triage_total, triage_change, merged_into, usage_json, started_at, finished_at, ...)
 feedback(id, pr_id, github_id, kind, thread_root_id, author, body, url, path, line, outdated, diff_hunk, review_state,
          created_at, verdict, reason, iteration_id, status /*unhandled|handled|ignored*/, handled_at, observed_at,
-         set_aside_resolved /*handled because its thread is resolved on GitHub; unresolving brings it back*/)
+         set_aside_resolved /*handled because its thread is resolved on GitHub; unresolving brings it back*/,
+         review_id /*a dry-run finding of this review, never posted; null for GitHub comments*/)
 activity   + iteration_id; kinds feedback.* and iteration.* (iteration.paused/resumed included)
 ```
 A batch that's triaged while another one waits (`held` or `awaiting_start`) is merged into it: its comments move over and it ends `cancelled` with `merged_into` set.
 
 ### 15.9 UI
 - **Iteration tab** (PR detail):
-  - **Feedback**, while a batch is open: each comment with author, location, verdict and reason. With manual start (or after the loop cap), an **Iterate** button, disabled while a result is `ready` or iterations are paused on the PR.
+  - **Feedback**, while a batch is open: each comment with author, location, verdict and reason. Dry-run findings carry a **Dry run** badge and no GitHub link. With manual start (or after the loop cap), an **Iterate** button, disabled while a result is `ready` or iterations are paused on the PR.
+  - **Cancel**, the same button at every stage up to `committing`: in the Feedback section while a batch is debouncing, triaging, waiting for Iterate or held (it stops every open batch), then on the queued or running iteration. `ready` has Discard instead, and a push and its replies don't stop halfway.
+    - Cancelled comments stay unhandled and join the batch the next new comment starts, which triages them again. A batch cancelled while still debouncing takes its comments with it, so the next sync doesn't start it again.
+    - A batch cancelled (or failed) before triage finished has no Re-run: it has nothing marked for a change.
   - **Pause / Resume** (§15.10), once per tab, leftmost in the action row of the iteration shown (next to Re-run, or Cancel while it's queued or running); with no iteration, in the Feedback header; with neither, under the empty state. While paused, an orange banner: "Iterations on this PR were paused 2h ago. Comments are still triaged, and wait until you resume."
   - **Latest iteration** that ran the agent: live steps while running. Then the commit title, addressed and not-addressed items with their notes, a unified diff (collapsible files, no syntax highlighting), the commit link, **Push** / **Discard** / **Uncommit** (when `ready`; Uncommit in local checkout mode only) and **Re-run**.
   - **Open in Claude**, once the agent ran: opens `claude://resume?session=<sessionId>`, which imports the agent's saved session into the Claude app's Code tab, to continue in the folder it ran in. Hidden for a worktree iteration once the PR closes (its worktree is gone); if the worktree was removed anyway (cleared cache, a reopened PR), the RPC errors instead of opening.

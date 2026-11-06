@@ -295,6 +295,7 @@ export class IterationPipeline {
       kind: g.kind,
       threadRootId: g.threadRootId,
       feedbackIds: g.rows.map((r) => r.id),
+      reviewId: g.reviewId,
       path: g.path,
       line: g.line,
       outdated: g.outdated,
@@ -503,7 +504,7 @@ export class IterationPipeline {
   /**
    * "Addressed in abc1234 — <note>" on each addressed inline thread, then resolve the thread;
    * "Not addressed — <note>" on each one the agent left alone, which stays open for the reviewer.
-   * Other notes stay in the app.
+   * Other notes, dry-run findings' included (they have no thread), stay in the app and the commit.
    */
   private async reply(it: Iteration, snap: IterationSnapshot, pr: Pr, repo: Repo): Promise<IterationPatch> {
     const { github, store } = this.d;
@@ -535,7 +536,8 @@ export class IterationPipeline {
     if (!snap.reply || !it.output) return [];
     return it.output.items.flatMap<ReplyTarget>((o) => {
       const item = it.items?.find((i) => i.number === o.number);
-      if (item?.kind !== "inline") return [];
+      // A dry-run finding was never posted, so it has no thread to reply in.
+      if (item?.kind !== "inline" || item.reviewId !== null) return [];
       if (o.status === "addressed") {
         return it.commitSha ? [{ rootId: item.threadRootId, body: `Addressed in ${short(it.commitSha)} — ${o.note}`, resolve: true }] : [];
       }
