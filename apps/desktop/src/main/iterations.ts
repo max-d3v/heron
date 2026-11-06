@@ -692,9 +692,9 @@ export class IterationScheduler {
   /**
    * On a paused PR, nothing that would start the agent may run: batches held behind another
    * iteration, and queued ones (retries included) whose next step is the agent, go back to
-   * `awaiting_start` as one batch, keeping a Re-run (or one with a worktree snapshot), else a queued
-   * one, else the oldest. A retry past the agent (committing, pushing, replying) carries on, like a
-   * run already going.
+   * `awaiting_start` as one batch, keeping the newest one with a snapshot (a Re-run in a worktree),
+   * else a Re-run, else a queued one, else the oldest. A retry past the agent (committing, pushing,
+   * replying) carries on, like a run already going.
    */
   private park(prId: number): void {
     const { db, store } = this.d;
@@ -704,9 +704,14 @@ export class IterationScheduler {
       .reverse(); // oldest first
     const [first] = parked;
     if (!first || (parked.length === 1 && first.state === "awaiting_start")) return;
-    // A Re-run (queued, or held behind another iteration) carries its trigger and maybe a worktree
-    // snapshot, which merging it away would lose.
-    const keep = parked.find((i) => i.trigger === "rerun" || i.profileSnapshot !== null) ?? parked.find((i) => i.state === "queued") ?? first;
+    // Merging an iteration away loses its snapshot (e.g. a Re-run in a worktree) and its Re-run
+    // trigger. The snapshot matters more, as it decides where the run happens: keep the newest one
+    // that has one (the latest click), else a Re-run, else a queued one, else the oldest.
+    const keep =
+      parked.findLast((i) => i.profileSnapshot !== null) ??
+      parked.find((i) => i.trigger === "rerun") ??
+      parked.find((i) => i.state === "queued") ??
+      first;
     const into =
       keep.state === "awaiting_start"
         ? keep
