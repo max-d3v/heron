@@ -457,9 +457,22 @@ export class IterationScheduler {
   }
 
   cancel(iterationId: number): void {
-    const it = this.d.db.getIteration(iterationId);
+    const { db } = this.d;
+    const it = db.getIteration(iterationId);
     if (!it || !isIterationActive(it.state)) return;
     if (it.state === "ready") throw new Error("Use Discard for a result that's ready");
+    // A debouncing batch claims its comments only at triage. Left unclaimed, they'd count as new
+    // at the next sync and start the batch again, so the cancelled one takes them with it.
+    const pr = it.state === "debouncing" ? db.getPr(it.prId) : null;
+    const repo = pr ? this.eligibleRepo(pr) : null;
+    if (pr && repo) {
+      db.updateFeedback(
+        this.candidates(pr, repo)
+          .filter((f) => f.iterationId === null)
+          .map((f) => f.id),
+        { iterationId: it.id },
+      );
+    }
     this.stop(it, "Cancelled");
     this.tick();
   }

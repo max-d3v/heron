@@ -492,6 +492,9 @@ A batch that's triaged while another one waits (`held` or `awaiting_start`) is m
 ### 15.9 UI
 - **Iteration tab** (PR detail):
   - **Feedback**, while a batch is open: each comment with author, location, verdict and reason. With manual start (or after the loop cap), an **Iterate** button, disabled while a result is `ready`.
+  - **Cancel**, the same button at every stage up to `committing`: in the Feedback section while a batch is debouncing, triaging, waiting for Iterate or held (it stops every open batch), then on the queued or running iteration. `ready` has Discard instead, and a push and its replies don't stop halfway.
+    - Cancelled comments stay unhandled and join the batch the next new comment starts, which triages them again. A batch cancelled while still debouncing takes its comments with it, so the next sync doesn't start it again.
+    - A batch cancelled (or failed) before triage finished has no Re-run: it has nothing marked for a change.
   - **Latest iteration** that ran the agent: live steps while running. Then the commit title, addressed and not-addressed items with their notes, a unified diff (collapsible files, no syntax highlighting), the commit link, **Push** / **Discard** / **Uncommit** (when `ready`; Uncommit in local checkout mode only) and **Re-run**.
   - **Open in Claude**, once the agent ran: opens `claude://resume?session=<sessionId>`, which imports the agent's saved session into the Claude app's Code tab, to continue in the folder it ran in. Hidden for a worktree iteration once the PR closes (its worktree is gone); if the worktree was removed anyway (cleared cache, a reopened PR), the RPC errors instead of opening.
   - On other people's PRs: an empty state, "Iterations only run on PRs you opened".
