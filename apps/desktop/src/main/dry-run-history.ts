@@ -1,4 +1,4 @@
-import { UNREPORTED_NOTE, dryRunFeedbackId, isHeldBack, type Feedback, type Iteration, type Review, type ReviewPayload, type Side } from "@heron/core";
+import { UNREPORTED_NOTE, dryRunFeedbackId, isHeldBack, type Feedback, type Iteration, type IterationState, type Review, type ReviewComment, type ReviewPayload } from "@heron/core";
 
 // Heron's earlier dry runs on a PR, for a review's `.heron/previous-reviews.json` (§7.3). Posted
 // reviews come from GitHub with their replies, which say what the author did about each comment.
@@ -13,13 +13,7 @@ export type DryRunOutcome =
   /** An iteration's agent left it alone, for this reason. */
   | { by: "iteration"; status: "not_addressed"; note: string };
 
-export interface DryRunComment {
-  path: string;
-  line: number;
-  side?: Side;
-  start_line?: number;
-  start_side?: Side;
-  body: string;
+export interface DryRunComment extends ReviewComment {
   outcome: DryRunOutcome | null;
 }
 
@@ -36,7 +30,7 @@ export interface DryRunEntry {
 }
 
 /** Iterations whose result stands: the agent ran, and its report is final. */
-const SETTLED: ReadonlySet<Iteration["state"]> = new Set(["pushed", "no_changes"]);
+const SETTLED: ReadonlySet<IterationState> = new Set(["pushed", "no_changes"]);
 
 /**
  * The PR's dry runs that held back a review, older than review `before`, oldest first. Each
@@ -58,12 +52,9 @@ export function dryRunHistory(reviews: Review[], feedback: Feedback[], iteration
       submittedAt: r.finishedAt === null ? null : new Date(r.finishedAt).toISOString(),
       body: r.payload.body,
       bodyOutcome: r.payload.body.trim() ? outcome(rows.get(dryRunFeedbackId(r.id, 0))) : null,
-      comments: r.payload.comments.map((c, i) => ({
-        path: c.path,
-        line: c.line,
-        ...(c.side ? { side: c.side } : {}),
-        ...(c.start_line !== undefined ? { start_line: c.start_line, ...(c.start_side ? { start_side: c.start_side } : {}) } : {}),
-        body: c.body,
+      // Everything but the diff lines kept for the app; JSON.stringify drops unset fields.
+      comments: r.payload.comments.map(({ context: _context, ...c }, i) => ({
+        ...c,
         outcome: outcome(rows.get(dryRunFeedbackId(r.id, i + 1))),
       })),
     }));
