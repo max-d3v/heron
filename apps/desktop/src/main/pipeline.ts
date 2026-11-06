@@ -356,9 +356,10 @@ export class Pipeline {
   /**
    * Post a dry run's held-back review (§6.5): only the PR's latest run, and only while its
    * commit is the open PR's head. It moves to `posted`. Throws, leaving the run `completed`
-   * so it can be posted again, when it can't be posted or the post fails.
+   * so it can be posted again, when it can't be posted or the post fails. `guard` runs right
+   * before posting and refuses it by throwing.
    */
-  async postHeld(reviewId: number): Promise<Review> {
+  async postHeld(reviewId: number, guard?: () => void): Promise<Review> {
     const review = this.d.db.getReview(reviewId);
     if (!review) throw new Error("Review not found");
     const { payload } = review;
@@ -376,6 +377,7 @@ export class Pipeline {
       const detail = await this.d.github.getPull(repo.owner, repo.name, pr.number);
       if (detail.state !== "open") throw new Error(`PR is ${detail.state}`);
       if (detail.headSha !== review.headSha) throw new Error(NEW_COMMITS);
+      guard?.();
       // The marker check in `publish` makes posting again after a failure safe.
       patch = await this.publish(review, payload, pr, repo);
     } finally {

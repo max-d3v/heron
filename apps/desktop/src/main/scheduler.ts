@@ -49,9 +49,10 @@ export interface SchedulerDeps {
   /**
    * Iterations follow the reviews that finish `completed` or `posted` (§15.3): they take up a dry
    * run's held-back review, set aside earlier dry-run findings once a newer review of the head
-   * replaces them, and set aside a dry run's own findings when it's posted by hand.
+   * replaces them, and set aside a dry run's own findings when it's posted by hand. `held` is
+   * true while a batch past waiting holds a dry run's findings, which refuses posting it (§6.5).
    */
-  dryRuns: { finished(review: Review): void; posted(review: Review): void };
+  dryRuns: { finished(review: Review): void; posted(review: Review): void; held(reviewId: number): boolean };
 }
 
 interface ActiveRun {
@@ -61,6 +62,7 @@ interface ActiveRun {
 }
 
 const short = (sha: string) => sha.slice(0, 7);
+const ITERATING = "An iteration is working on these findings.";
 
 /**
  * Owns the queue: turns PR changes into owed reviews (§5), runs up to N pipelines
@@ -349,8 +351,13 @@ export class Scheduler {
 
   /** Post a dry run's held-back review (§6.5). */
   async post(reviewId: number): Promise<Review> {
+    // Checked again just before posting: a batch may start its triage while GitHub is asked for the head.
+    const notHeld = () => {
+      if (this.d.dryRuns.held(reviewId)) throw new Error(ITERATING);
+    };
+    notHeld();
     try {
-      const posted = await this.d.pipeline.postHeld(reviewId);
+      const posted = await this.d.pipeline.postHeld(reviewId, notHeld);
       if (posted.state === "posted") this.d.dryRuns.posted(posted);
       return posted;
     } catch (err) {

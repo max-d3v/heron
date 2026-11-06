@@ -162,6 +162,7 @@ async function main(): Promise<void> {
     dryRuns: {
       finished: (review) => iterations.reviewFinished(review),
       posted: (review) => iterations.dryRunPosted(review),
+      held: (reviewId) => iterations.dryRunHeld(reviewId),
     },
   });
   iterations = new IterationScheduler({

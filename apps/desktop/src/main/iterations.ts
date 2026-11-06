@@ -249,6 +249,21 @@ export class IterationScheduler {
     return true;
   }
 
+  /**
+   * True while a batch past waiting (in triage, running, or a result), or a live Re-run, holds
+   * findings of this dry run. Posting it by hand then is refused (§6.5): the posted comments
+   * would come back at the next sync as new feedback for problems that batch already handles.
+   */
+  dryRunHeld(reviewId: number): boolean {
+    const { db } = this.d;
+    const review = db.getReview(reviewId);
+    if (!review) return false;
+    const its = db.listIterationsForPr(review.prId);
+    const busy = new Set(its.filter((i) => isIterationActive(i.state) && (!WAITING.has(i.state) || i.trigger === "rerun")).map((i) => i.id));
+    if (busy.size === 0) return false;
+    return db.listFeedbackForPr(review.prId, "unhandled").some((f) => f.reviewId === reviewId && f.iterationId !== null && busy.has(f.iterationId));
+  }
+
   /** A dry run was posted by hand: its findings come back as GitHub comments at the next sync, so Heron's copies go. */
   dryRunPosted(review: Review): void {
     const pr = this.d.db.getPr(review.prId);
