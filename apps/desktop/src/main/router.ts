@@ -380,6 +380,7 @@ export function createRouter(s: Services) {
             latestError: null,
             iterationEligible: false,
             iteration: null,
+            iterationPausedAt: pr.iterationPausedAt,
             lastActivityAt: pr.lastActivityAt,
           }),
           body: pr.body,
@@ -472,6 +473,8 @@ export function createRouter(s: Services) {
         return toFeedbackPanel(db, pr, requireRepo(pr.repoId), s.viewerLogin(), db.getSettings());
       }),
       iterate: os.iterations.iterate.handler(({ input }) => toIterationSummary(s.iterations.iterate(input.prId))),
+      pause: os.iterations.pause.handler(({ input }) => s.iterations.pause(input.prId)),
+      resume: os.iterations.resume.handler(({ input }) => s.iterations.resume(input.prId)),
       push: os.iterations.push.handler(({ input }) => toIterationSummary(s.iterations.push(input.id))),
       discard: os.iterations.discard.handler(({ input }) => s.iterations.discard(input.id)),
       uncommit: os.iterations.uncommit.handler(({ input }) => s.iterations.uncommit(input.id)),

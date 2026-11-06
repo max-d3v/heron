@@ -125,6 +125,7 @@ export function Sidebar({
 
 function PrRow({ pr, selected, now, onClick }: { pr: PrListItem; selected: boolean; now: number; onClick: () => void }) {
   const closed = pr.state !== "open";
+  const iterationsPaused = !closed && pr.iterationPausedAt !== null;
   return (
     <button
       onClick={onClick}
@@ -155,7 +156,7 @@ function PrRow({ pr, selected, now, onClick }: { pr: PrListItem; selected: boole
           {pr.isDraft && <Tag selected={selected}>Draft</Tag>}
           {closed && <Tag selected={selected}>{pr.state === "merged" ? "Merged" : "Closed"}</Tag>}
           {pr.headUnreviewed && !closed && <Tag selected={selected}>New commits</Tag>}
-          {pr.iteration && <IterationTag badge={pr.iteration} selected={selected} />}
+          {(pr.iteration || iterationsPaused) && <IterationTag badge={pr.iteration} paused={iterationsPaused} selected={selected} />}
         </span>
       </span>
     </button>
@@ -168,6 +169,8 @@ function Tag({ children, selected }: { children: string; selected: boolean }) {
   );
 }
 
+const PAUSED_TAG = { label: "Paused", tip: "Iterations are paused on this PR", tone: "bg-field text-fg-2" };
+
 const ITERATION_TAG: Record<IterationBadge, { label: string; tip: string; tone: string }> = {
   waiting: { label: "Feedback", tip: "Feedback is waiting for Iterate", tone: "bg-[color-mix(in_srgb,var(--orange)_16%,transparent)] text-warn" },
   running: { label: "Iterating", tip: "Iteration in progress", tone: "bg-accent-soft text-accent" },
@@ -175,11 +178,13 @@ const ITERATION_TAG: Record<IterationBadge, { label: string; tip: string; tone: 
   failed: { label: "Iteration failed", tip: "The latest iteration failed", tone: "bg-[color-mix(in_srgb,var(--red)_14%,transparent)] text-bad" },
 };
 
-/** The second badge: what the PR's iterations need or are doing. */
-function IterationTag({ badge, selected }: { badge: IterationBadge; selected: boolean }) {
-  const t = ITERATION_TAG[badge];
-  const icon =
-    badge === "running" ? (
+/** The second badge: what the PR's iterations need or are doing, with a pause icon while they're paused on the PR (§15.10). */
+function IterationTag({ badge, paused, selected }: { badge: IterationBadge | null; paused: boolean; selected: boolean }) {
+  const t = badge ? ITERATION_TAG[badge] : PAUSED_TAG;
+  const tip = paused && badge ? `${t.tip}. Iterations are paused on this PR.` : t.tip;
+  const icon = paused ? (
+    <Pause className="size-2.5" />
+  ) : badge === "running" ? (
       <span className={cn("spin size-2 rounded-full border-[1.5px] border-t-transparent", selected ? "border-white" : "border-accent")} />
     ) : badge === "ready" ? (
       <Upload className="size-2.5" />
@@ -189,7 +194,7 @@ function IterationTag({ badge, selected }: { badge: IterationBadge; selected: bo
       <MessageSquareText className="size-2.5" />
     );
   return (
-    <Tooltip content={t.tip} side="right">
+    <Tooltip content={tip} side="right">
       <span className={cn("flex shrink-0 items-center gap-1 rounded-[4px] px-1 text-[10px] font-medium", selected ? "bg-white/20 text-white" : t.tone)}>
         {icon}
         {t.label}

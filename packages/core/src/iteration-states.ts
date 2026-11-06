@@ -5,6 +5,7 @@ import type { IterationState, IterationStepState } from "./types.ts";
 //                        ├→ held → queued              another iteration occupies the PR
 //                        └→ queued
 // awaiting_start, held, preparing → skipped            every thread left was resolved on GitHub
+// held, queued → awaiting_start                        iterations paused on the PR; Resume or Iterate restarts them
 // queued → preparing → running → committing ─┬→ no_changes
 //                                             ├→ replying → no_changes       no commit, but threads to answer
 //                                             ├→ ready ─┬→ pushing (Push)
@@ -27,8 +28,8 @@ const FORWARD: Record<IterationState, readonly IterationState[]> = {
   debouncing: ["triaging"],
   triaging: ["skipped", "awaiting_start", "held", "queued", "debouncing"],
   awaiting_start: ["queued", "held", "skipped"],
-  held: ["queued", "skipped"],
-  queued: ["preparing", "committing", "pushing", "replying"],
+  held: ["queued", "skipped", "awaiting_start"],
+  queued: ["preparing", "committing", "pushing", "replying", "awaiting_start"],
   preparing: ["running", "queued", "skipped"],
   // Back to preparing: an interrupted run starts over from a clean checkout.
   running: ["committing", "preparing", "queued"],

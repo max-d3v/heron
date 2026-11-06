@@ -49,8 +49,10 @@ function icon(a: ActivityDto) {
     case "review.posted":
       return <MessageCircleMore className={cn(cls, "text-ok")} />;
     case "queue.paused":
+    case "iteration.paused":
       return <Pause className={cls} />;
     case "queue.resumed":
+    case "iteration.resumed":
       return <Play className={cls} />;
     case "review.state": {
       const to = a.data?.to;

@@ -124,6 +124,8 @@ export interface Pr {
   url: string;
   /** Heron pushes in a row with no other push in between (the loop cap). */
   heronPushStreak: number;
+  /** When iterations were paused on this PR (§15.10); null while they run. */
+  iterationPausedAt: number | null;
   /** The PR's `updatedAt` when its comments were last fetched into `feedback`. */
   feedbackSyncedAt: number | null;
   additions: number | null;
@@ -401,6 +403,8 @@ export const ACTIVITY_KINDS = [
   "iteration.state",
   "iteration.retry",
   "iteration.error",
+  "iteration.paused",
+  "iteration.resumed",
   "agent.step",
   "queue.paused",
   "queue.resumed",

@@ -75,6 +75,8 @@ export const prListItem = z.object({
   /** Iterations run on it: iterations are on for its repo, and it's an open PR you opened from a branch in the same repo. */
   iterationEligible: z.boolean(),
   iteration: iterationBadge.nullable(),
+  /** When iterations were paused on this PR; null while they run. */
+  iterationPausedAt: z.number().nullable(),
   lastActivityAt: z.number(),
 });
 
@@ -207,6 +209,8 @@ export const feedbackPanel = z.object({
   /** Heron pushed `loopCap` times in a row: the PR waits for Iterate until someone else pushes. */
   loopCapped: z.boolean(),
   pushStreak: z.number(),
+  /** When iterations were paused on this PR: nothing starts the agent until Resume. Null while they run. */
+  pausedAt: z.number().nullable(),
   /** The open batch (debouncing, triaging, waiting for Iterate or held), newest first. */
   batches: z.array(iterationSummary),
   groups: z.array(feedbackGroup),
@@ -539,6 +543,9 @@ export const contract = {
     get: oc.input(byId).output(iterationDetail),
     feedback: oc.input(z.object({ prId: id })).output(feedbackPanel),
     iterate: oc.input(z.object({ prId: id })).output(iterationSummary),
+    /** Start no agent run on this PR until `resume`; comments are still triaged and wait. */
+    pause: oc.input(z.object({ prId: id })),
+    resume: oc.input(z.object({ prId: id })),
     push: oc.input(byId).output(iterationSummary),
     discard: oc.input(byId),
     /** Local checkout mode: soft-reset the ready commit off the branch, keeping its changes staged. */

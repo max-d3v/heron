@@ -236,4 +236,7 @@ export const MIGRATIONS: readonly string[] = [
   /* 8: comments in an inline thread resolved on GitHub are set aside (handled), and come back if it's unresolved */ `
   ALTER TABLE feedback ADD COLUMN set_aside_resolved INTEGER NOT NULL DEFAULT 0;
   `,
+  /* 9: iterations can be paused on one PR: when, or null while they run */ `
+  ALTER TABLE prs ADD COLUMN iteration_paused_at INTEGER;
+  `,
 ];
