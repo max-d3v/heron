@@ -241,4 +241,7 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE repos ADD COLUMN iteration_dry_runs INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE feedback ADD COLUMN review_id INTEGER REFERENCES reviews(id) ON DELETE CASCADE;
   `,
+  /* 10: iterations can be paused on one PR: when, or null while they run */ `
+  ALTER TABLE prs ADD COLUMN iteration_paused_at INTEGER;
+  `,
 ];

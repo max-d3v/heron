@@ -292,7 +292,7 @@ Map SDK messages to `AgentStep`s: `Reading src/auth.ts`, `Searching "token"`, `R
 repos(id, owner, name, scope, include_drafts, profile_id, trust_repo_claude_config, dry_run, review_enabled, iteration_enabled, etag, created_at,
       iteration_auto_start, iteration_comments, iteration_profile_id, iteration_auto_push, iteration_reply, iteration_dry_runs, setup_command, local_checkout_path)
 prs(id, repo_id, number, title, author, is_draft, head_sha, head_ref, head_repo, base_ref, state, url, updated_at,
-    heron_push_streak)
+    heron_push_streak, iteration_paused_at)
 reviews(id, pr_id, head_sha, state, run_after, attempt, last_error, pid, session_id,
         profile_snapshot_json, resolved_model, transcript_path, output_json,
         github_review_id, created_at, updated_at, last_activity_at)
@@ -313,7 +313,7 @@ Migrations live in `packages/db`. Each state change and its `activity` row are w
 ## 11. RPC (`packages/rpc`)
 
 oRPC over a `MessagePort` handed to the renderer through the preload script. Zod contracts are shared by both sides.
-- Queries/mutations: `repos.*`, `profiles.*`, `skills.*`, `settings.*`, `prs.list`, `prs.get`, `reviews.get`, `reviews.reviewNow`, `reviews.rerun`, `iterations.list/get/diff`, `iterations.start/push/discard/rerun/openInClaude`, `feedback.list`, `queue.pause/resume`, `doctor.check`.
+- Queries/mutations: `repos.*`, `profiles.*`, `skills.*`, `settings.*`, `prs.list`, `prs.get`, `reviews.get`, `reviews.reviewNow`, `reviews.rerun`, `iterations.list/get/diff`, `iterations.start/push/discard/rerun/openInClaude`, `iterations.pause/resume` (one PR), `feedback.list`, `queue.pause/resume`, `doctor.check`.
 - **Streams** (async iterators): `prs.watch()`, `reviews.activity(prId)`, `reviews.agentSteps(reviewId)`, `iterations.agentSteps(iterationId)`, `queue.status()`.
 
 ---
@@ -457,7 +457,7 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
   - trailer: `Heron-Iteration: <id>`
 - The commit is also kept on `refs/heron/iterations/<id>` in Heron's clone (fetched from the checkout in local mode), so a reset never loses it.
 - **No changes** → `no_changes`: no commit. When there are `not_addressed` inline threads to answer, it goes through `replying` first.
-- **Push:** `git push https://github.com/<owner>/<name> <sha>:refs/heads/<headRef>` with the `gh` token (§9), never forced, in both modes. Auto-push on → right away. Off → `ready` until **Push**, **Discard** or, in local checkout mode, **Uncommit** (`git reset --soft` to the PR head on the local checkout, so the changes stay staged for you to finish; Heron pushes and replies nothing).
+- **Push:** `git push https://github.com/<owner>/<name> <sha>:refs/heads/<headRef>` with the `gh` token (§9), never forced, in both modes. Auto-push on → right away, unless iterations are paused on the PR (§15.10). Off → `ready` until **Push**, **Discard** or, in local checkout mode, **Uncommit** (`git reset --soft` to the PR head on the local checkout, so the changes stay staged for you to finish; Heron pushes and replies nothing).
 - **Head moved** (a non-fast-forward rejection, or a new `headSha` while in flight or `ready`) → `stale`. A new iteration with the same comments goes straight to `queued`, with no triage and no click.
 - **403 / branch protection** → `failed`, no retry.
 - **Replies** (`iterationReply` on): on each addressed inline thread, `Addressed in abc1234 — <note>` with the hidden marker, then resolve the thread (GraphQL `resolveReviewThread`; a thread that's already resolved is left alone). A reply in a thread Heron resolved is set aside like any reply in a resolved thread, until someone unresolves it (§15.3). On each `not_addressed` inline thread, `Not addressed — <note>` with the marker, and the thread stays open: a reply from the reviewer reopens it (§15.3) and the agent sees its earlier reason in the thread. Not-addressed replies go out with the addressed ones after the push, or right away when there's no commit; a discarded result posts nothing. An item the agent left out of its output gets no reply. Look for the marker first, so a retry never posts twice. A reply or resolve GitHub refuses (deleted comment, no permission) is logged in Activity and doesn't fail the iteration. No reply for review bodies or conversation comments; those notes stay in the app.
@@ -471,6 +471,7 @@ debouncing → triaging ─┬→ skipped                    nothing to change
                        ├→ held → queued              another iteration on the PR is in flight or ready
                        └→ queued
 awaiting_start, held, preparing → skipped             every thread left was resolved on GitHub (§15.3, §15.5)
+held, queued → awaiting_start                         iterations paused on the PR (§15.10)
 queued → preparing → running → committing ─┬→ no_changes
                                             ├→ replying → no_changes        no commit, but threads to answer
                                             ├→ ready ─┬→ pushing (Push)
@@ -487,7 +488,7 @@ any → failed | stale | cancelled
 ```
 repos      + iteration_auto_start, iteration_comments, iteration_profile_id, iteration_auto_push, iteration_reply, iteration_dry_runs, setup_command, local_checkout_path
 profiles   + kind ('review' | 'iteration'); one default per kind
-prs        + head_repo (fork detection), heron_push_streak (loop cap), feedback_synced_at
+prs        + head_repo (fork detection), heron_push_streak (loop cap), feedback_synced_at, iteration_paused_at (§15.10)
 iterations(id, pr_id, state, trigger_kind, head_sha, run_after, attempt, retry_step, last_error, pid, session_id,
            profile_snapshot_json, resolved_model, transcript_path, cwd_kind, items_json, output_json, raw_output,
            commit_sha, triage_total, triage_change, merged_into, usage_json, started_at, finished_at, ...)
@@ -495,25 +496,38 @@ feedback(id, pr_id, github_id, kind, thread_root_id, author, body, url, path, li
          created_at, verdict, reason, iteration_id, status /*unhandled|handled|ignored*/, handled_at, observed_at,
          set_aside_resolved /*handled because its thread is resolved on GitHub; unresolving brings it back*/,
          review_id /*a dry-run finding of this review, never posted; null for GitHub comments*/)
-activity   + iteration_id; kinds feedback.* and iteration.*
+activity   + iteration_id; kinds feedback.* and iteration.* (iteration.paused/resumed included)
 ```
 A batch that's triaged while another one waits (`held` or `awaiting_start`) is merged into it: its comments move over and it ends `cancelled` with `merged_into` set.
 
 ### 15.9 UI
 - **Iteration tab** (PR detail):
-  - **Feedback**, while a batch is open: each comment with author, location, verdict and reason. Dry-run findings carry a **Dry run** badge and no GitHub link. With manual start (or after the loop cap), an **Iterate** button, disabled while a result is `ready`.
+  - **Feedback**, while a batch is open: each comment with author, location, verdict and reason. Dry-run findings carry a **Dry run** badge and no GitHub link. With manual start (or after the loop cap), an **Iterate** button, disabled while a result is `ready` or iterations are paused on the PR.
   - **Cancel**, the same button at every stage up to `committing`: in the Feedback section while a batch is debouncing, triaging, waiting for Iterate or held (it stops every open batch), then on the queued or running iteration. `ready` has Discard instead, and a push and its replies don't stop halfway.
     - Cancelled comments stay unhandled and join the batch the next new comment starts, which triages them again. A batch cancelled while still debouncing takes its comments with it, so the next sync doesn't start it again.
     - A batch cancelled (or failed) before triage finished has no Re-run: it has nothing marked for a change.
+  - **Pause / Resume** (§15.10), once per tab, leftmost in the action row of the iteration shown (next to Re-run, or Cancel while it's queued or running); with no iteration, in the Feedback header; with neither, under the empty state. While paused, an orange banner: "Iterations on this PR were paused 2h ago. Comments are still triaged, and wait until you resume."
   - **Latest iteration** that ran the agent: live steps while running. Then the commit title, addressed and not-addressed items with their notes, a unified diff (collapsible files, no syntax highlighting), the commit link, **Push** / **Discard** / **Uncommit** (when `ready`; Uncommit in local checkout mode only) and **Re-run**.
   - **Open in Claude**, once the agent ran: opens `claude://resume?session=<sessionId>`, which imports the agent's saved session into the Claude app's Code tab, to continue in the folder it ran in. Hidden for a worktree iteration once the PR closes (its worktree is gone); if the worktree was removed anyway (cleared cache, a reopened PR), the RPC errors instead of opening.
   - On other people's PRs: an empty state, "Iterations only run on PRs you opened".
 - **Runs:** separate Reviews and Iterations sections. An iteration row shows state, model, triage result ("4 of 6 to change"), addressed count, duration and commit. Clicking opens it in the Iteration tab. `skipped` batches appear here, never as the latest iteration.
 - **Transcript:** unchanged. For an iteration, the triage call(s) then the agent's turns.
 - **Activity:** feedback and iteration events next to review events.
-- **Sidebar:** a second badge per PR: feedback waiting / running / ready to push / failed.
+- **Sidebar:** a second badge per PR: feedback waiting / running / ready to push / failed. While iterations are paused on the PR, the badge shows a pause icon (or reads **Paused** when there's nothing else to show).
 - **Menu bar:** "N ready to push".
-- **Notifications:** feedback waiting (manual start), ready to push and pushed under `notifyPosted`; failed under `notifyFailed`.
+- **Notifications:** feedback waiting (manual start, never while paused), ready to push and pushed under `notifyPosted`; failed under `notifyFailed`.
+
+### 15.10 Pause on one PR
+Stop iterations on one PR, e.g. while you work on its branch yourself, without turning them off for the repo or pausing the whole queue.
+- **Pause** (Iteration tab, §15.9) sets `prs.iteration_paused_at`. Only on an open PR iterations run on (§15.1), with iterations on for the repo. It lasts until **Resume**, across restarts; a PR that closes and reopens is still paused. Reviews aren't affected, and Pause All / Resume (§6.3) neither sets nor clears it.
+- **While paused, nothing starts the agent on the PR:**
+  - Comments still sync and are triaged (§15.3, §15.4). A batch with something to change goes to `awaiting_start`, with no "Feedback waiting" notification.
+  - **Iterate**, **Re-run** and **Re-run in a worktree** are refused ("Resume iterations on this PR to run").
+  - `held` batches, and `queued` ones whose next step is the agent (a fresh start, or a retry of `preparing` or `running`), go back to `awaiting_start`, merged into one batch (the newest one with a snapshot, such as a Re-run in a worktree, is kept so it runs where it was asked to; else a Re-run, with its trigger; else a queued one; else the oldest). A head move requeues stale work to `awaiting_start` too.
+  - Work already past that carries on: a run in `preparing`, `running` or `committing` finishes (Cancel still works), and so do a retry of `committing`, `pushing` or `replying` and a push in progress.
+  - A result stops at `ready` even with `iterationAutoPush` on. **Push**, **Discard** and **Uncommit** still work: they're your clicks and start no agent.
+- **Resume** clears it. Batches in `awaiting_start` go where the repo sends them: `queued` (or `held` behind a `ready` result) when `iterationAutoStart` is on and the loop cap allows; otherwise they keep waiting for Iterate. A result held at `ready` stays there for Push. The loop cap's streak isn't reset.
+- Activity logs "Iterations paused on this PR" and "Iterations resumed on this PR".
 
 ---
 

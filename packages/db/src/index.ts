@@ -95,6 +95,7 @@ function toPr(r: Row): Pr {
     state: r.state as PrState,
     url: String(r.url),
     heronPushStreak: Number(r.heron_push_streak ?? 0),
+    iterationPausedAt: num(r.iteration_paused_at),
     feedbackSyncedAt: num(r.feedback_synced_at),
     additions: num(r.additions),
     deletions: num(r.deletions),
@@ -560,10 +561,13 @@ export class HeronDb {
 
   updatePr(
     id: number,
-    patch: Partial<Pick<Pr, "state" | "additions" | "deletions" | "changedFiles" | "lastActivityAt" | "heronPushStreak" | "feedbackSyncedAt">>,
+    patch: Partial<
+      Pick<Pr, "state" | "additions" | "deletions" | "changedFiles" | "lastActivityAt" | "heronPushStreak" | "feedbackSyncedAt" | "iterationPausedAt">
+    >,
   ): void {
     const cols: Record<string, unknown> = {};
     if (patch.heronPushStreak !== undefined) cols.heron_push_streak = patch.heronPushStreak;
+    if (patch.iterationPausedAt !== undefined) cols.iteration_paused_at = patch.iterationPausedAt;
     if (patch.feedbackSyncedAt !== undefined) cols.feedback_synced_at = patch.feedbackSyncedAt;
     if (patch.state !== undefined) cols.state = patch.state;
     if (patch.additions !== undefined) cols.additions = patch.additions;

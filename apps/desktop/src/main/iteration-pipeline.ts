@@ -444,7 +444,7 @@ export class IterationPipeline {
 
   // ── committing ────────────────────────────────────────────────────────────
 
-  private async commit(it: Iteration, snap: IterationSnapshot, pr: Pr, repo: Repo): Promise<{ patch: IterationPatch; to: IterationState }> {
+  private async commit(it: Iteration, snap: IterationSnapshot, pr: Pr, repo: Repo): Promise<{ patch: IterationPatch; to: IterationState; message?: string }> {
     const { git, paths } = this.d;
     const output = it.output;
     if (!output || !it.headSha) throw new PermanentError("Nothing to commit (the agent's output is missing)");
@@ -474,6 +474,10 @@ export class IterationPipeline {
       await git.updateRef(clone, ref, sha);
     }
     await writeFile(paths.iterationDiff(it.id), await git.diff(clone, it.headSha, sha));
+    // Paused on this PR (§15.10): auto push waits for a click like any result.
+    if (snap.autoPush && pr.iterationPausedAt !== null) {
+      return { patch: { commitSha: sha }, to: "ready", message: "Ready to push: auto push waits while iterations are paused on this PR" };
+    }
     return { patch: { commitSha: sha }, to: snap.autoPush ? "pushing" : "ready" };
   }
 

@@ -125,6 +125,7 @@ Settings → **General** has parallel iterations (2), the wait after the last co
 - Only pull requests you opened from a branch in the same repo. Forks and other people's PRs are never changed.
 - Heron never force-pushes. If the branch moves mid-run, the result is dropped and the comments run again on the new commit.
 - No dry run: to post nothing, leave **Push automatically** and **Replies** off.
+- To stop iterations on one PR, say while you work on its branch, click **Pause** in its Iteration tab. Comments are still sorted, but nothing runs or pushes on its own until you click **Resume**. A run that's already going finishes and waits for **Push**.
 - With **All comments**, anyone who can comment on your PR can steer Claude, which runs with full tools on your computer. Check the diff before you push, or use **My comments**.
 
 ## Good to know

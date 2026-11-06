@@ -18,6 +18,7 @@ import {
   type Feedback,
   type Iteration,
   type IterationState,
+  type IterationStepState,
   type PauseReason,
   type Pr,
   type PrChange,
@@ -69,6 +70,10 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Batches that haven't started their triage call or their run: a sync may take resolved threads out of them. */
 const WAITING: ReadonlySet<IterationState> = new Set(["debouncing", "awaiting_start", "held"]);
+/** A queued run that resumes at one of these starts the agent (a retry of `running` redoes `preparing`). */
+const AGENT_START: ReadonlySet<IterationStepState> = new Set(["preparing", "running"]);
+const PAUSED_WAIT = "Waiting: iterations are paused on this PR";
+const PAUSED_ERROR = "Iterations are paused on this PR. Resume them first.";
 
 /**
  * The batches that hold on to their claimed comments: past waiting (in triage, running, or a
@@ -501,7 +506,8 @@ export class IterationScheduler {
     const next = db.tx(() => {
       const created = db.createIteration({
         prId: pr.id,
-        state: this.occupied(pr.id, from.id) ? "held" : "queued",
+        // A paused PR starts no agent: the comments wait for Resume (§15.10).
+        state: pr.iterationPausedAt !== null ? "awaiting_start" : this.occupied(pr.id, from.id) ? "held" : "queued",
         // A Re-run's comments were asked for by hand, so it skips the resolved check before the run
         // (§15.5); when it goes stale, its requeue is still that Re-run.
         trigger: from.trigger === "rerun" ? "rerun" : trigger,
@@ -521,7 +527,10 @@ export class IterationScheduler {
       reviewId: null,
       iterationId: next.id,
       kind: "iteration.created",
-      message: trigger === "stale" ? `Queued again on the new head (${plural(rows.length, "comment")})` : `Re-run of iteration ${from.id} requested${where}`,
+      message:
+        trigger === "stale"
+          ? `${next.state === "awaiting_start" ? "Waiting for Resume" : "Queued again"} on the new head (${plural(rows.length, "comment")})`
+          : `Re-run of iteration ${from.id} requested${where}`,
     });
     return next;
   }
@@ -554,6 +563,7 @@ export class IterationScheduler {
   iterate(prId: number): Iteration {
     const { db, store } = this.d;
     this.requireOn(prId);
+    if (db.getPr(prId)?.iterationPausedAt != null) throw new Error(PAUSED_ERROR);
     const its = db.listIterationsForPr(prId);
     const waiting = its.find((i) => i.state === "awaiting_start");
     if (!waiting) throw new Error("No feedback is waiting for Iterate");
@@ -610,6 +620,7 @@ export class IterationScheduler {
     this.requireOn(old.prId);
     const pr = db.getPr(old.prId);
     if (!pr || !this.eligibleRepo(pr)) throw new Error(pr ? iterationEligibilityReason(db, pr, this.d.viewerLogin()) : "PR not found");
+    if (pr.iterationPausedAt !== null) throw new Error(PAUSED_ERROR);
     if (isIterationActive(old.state) && old.state !== "ready") throw new Error("This iteration is still in progress");
     if (old.state === "ready") {
       const replaced = store.transitionIteration(old, "cancelled", { patch: { finishedAt: old.finishedAt ?? Date.now() }, message: "Replaced by a re-run" });
@@ -640,6 +651,79 @@ export class IterationScheduler {
     }
     this.stop(it, "Cancelled");
     this.tick();
+  }
+
+  // ── pause on one PR (§15.10) ──────────────────────────────────────────────
+
+  /**
+   * Start no agent run on this PR until Resume. Comments are still synced and triaged, and their
+   * batch waits. A run already going finishes, but stops at `ready` instead of pushing on its own.
+   */
+  pause(prId: number): void {
+    const { db, store } = this.d;
+    const pr = db.getPr(prId);
+    if (!pr) throw new Error("PR not found");
+    if (pr.iterationPausedAt !== null) return;
+    this.requireOn(prId);
+    if (!this.eligibleRepo(pr)) throw new Error(iterationEligibilityReason(db, pr, this.d.viewerLogin()));
+    db.updatePr(prId, { iterationPausedAt: Date.now() });
+    store.activity({ prId, reviewId: null, kind: "iteration.paused", message: "Iterations paused on this PR" });
+    this.park(prId);
+  }
+
+  /** Waiting batches go where the repo sends them: queued when it starts on its own and the loop cap allows, else they wait for Iterate. */
+  resume(prId: number): void {
+    const { db, store } = this.d;
+    const pr = db.getPr(prId);
+    if (!pr || pr.iterationPausedAt === null) return;
+    db.updatePr(prId, { iterationPausedAt: null });
+    store.activity({ prId, reviewId: null, kind: "iteration.resumed", message: "Iterations resumed on this PR" });
+    const repo = this.eligibleRepo(pr);
+    const capped = pr.heronPushStreak >= this.d.settings().loopCap;
+    if (repo?.iterationEnabled && repo.iterationAutoStart && !capped) {
+      for (const it of db.listIterationsForPr(prId)) {
+        if (it.state !== "awaiting_start") continue;
+        store.transitionIteration(it, this.occupied(prId, it.id) ? "held" : "queued", { patch: { runAfter: Date.now() }, message: "Started (Resume)" });
+      }
+    }
+    this.tick();
+  }
+
+  /**
+   * On a paused PR, nothing that would start the agent may run: batches held behind another
+   * iteration, and queued ones (retries included) whose next step is the agent, go back to
+   * `awaiting_start` as one batch, keeping the newest Re-run with a snapshot (a Re-run in a worktree),
+   * else a Re-run, else a queued one, else the oldest. A retry past the agent (committing, pushing,
+   * replying) carries on, like a run already going.
+   */
+  private park(prId: number): void {
+    const { db, store } = this.d;
+    const parked = db
+      .listIterationsForPr(prId)
+      .filter((i) => i.state === "awaiting_start" || i.state === "held" || (i.state === "queued" && AGENT_START.has(i.retryStep ?? "preparing")))
+      .reverse(); // oldest first
+    const [first] = parked;
+    if (!first || (parked.length === 1 && first.state === "awaiting_start")) return;
+    // Merging an iteration away loses its snapshot (e.g. a Re-run in a worktree) and its Re-run
+    // trigger. The snapshot matters more, as it decides where the run happens: keep the newest
+    // Re-run that has one (the latest click), else a Re-run, else a queued one, else the oldest.
+    // Only a Re-run's snapshot counts: every run saves one as it enters `preparing`, so a queued
+    // retry of `preparing` or `running` has one too, and it must not win over a Re-run.
+    const keep =
+      parked.findLast((i) => i.trigger === "rerun" && i.profileSnapshot !== null) ??
+      parked.find((i) => i.trigger === "rerun") ??
+      parked.find((i) => i.state === "queued") ??
+      first;
+    const into =
+      keep.state === "awaiting_start"
+        ? keep
+        : store.transitionIteration(keep, "awaiting_start", { patch: { runAfter: null, retryStep: null }, message: PAUSED_WAIT });
+    if (!into) return;
+    for (const it of parked) {
+      if (it.id === into.id) continue;
+      const fresh = db.getIteration(into.id);
+      if (fresh) this.merge(it, fresh);
+    }
   }
 
   /** In local checkout mode the commit sits on the user's branch: take it back off, but never at the cost of local edits. */
@@ -676,6 +760,8 @@ export class IterationScheduler {
       // A repo with iterations off starts and resumes nothing (a run already going finishes).
       const disabledRepos = new Set(db.listRepos().filter((r) => !r.iterationEnabled).map((r) => r.id));
       const blocked = (prId: number) => disabledRepos.size > 0 && disabledRepos.has(db.getPr(prId)?.repoId ?? -1);
+      // A PR paused since its last tick (or a retry that failed meanwhile) starts no agent.
+      for (const pr of db.listOpenPrs()) if (pr.iterationPausedAt !== null) this.park(pr.id);
 
       // Triage doesn't take a parallel-run slot.
       if (!paused) {
@@ -785,7 +871,7 @@ export class IterationScheduler {
     this.route(counted, new Set(change.map(groupKey)).size);
   }
 
-  /** After triage: wait for Iterate, wait behind the iteration occupying the PR, or queue. Waiting batches merge into one. */
+  /** After triage: wait for Iterate (or Resume), wait behind the iteration occupying the PR, or queue. Waiting batches merge into one. */
   private route(it: Iteration, items: number): void {
     const { db, store } = this.d;
     const pr = db.getPr(it.prId);
@@ -797,12 +883,14 @@ export class IterationScheduler {
       this.merge(it, waiting);
       return;
     }
+    const paused = pr.iterationPausedAt !== null;
     const capped = pr.heronPushStreak >= settings.loopCap;
-    if (!repo.iterationAutoStart || capped) {
+    if (paused || !repo.iterationAutoStart || capped) {
       const moved = store.transitionIteration(it, "awaiting_start", {
-        message: capped ? `Waiting for Iterate: Heron pushed ${pr.heronPushStreak} times in a row` : undefined,
+        message: paused ? PAUSED_WAIT : capped ? `Waiting for Iterate: Heron pushed ${pr.heronPushStreak} times in a row` : undefined,
       });
-      if (moved && settings.notifyPosted) {
+      // A paused PR stays quiet: Iterate is off until Resume.
+      if (moved && settings.notifyPosted && !paused) {
         this.d.notify({ title: "Feedback waiting", body: `#${pr.number} ${pr.title}: ${plural(items, "comment")} to address`, prId: pr.id, tab: "iteration" });
       }
       return;

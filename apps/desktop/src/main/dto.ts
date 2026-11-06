@@ -100,6 +100,7 @@ export function toPrListItem(
     latestError: latestReview?.state === "failed" ? latestReview.lastError : null,
     iterationEligible,
     iteration,
+    iterationPausedAt: pr.iterationPausedAt,
     lastActivityAt: pr.lastActivityAt,
   };
 }
@@ -289,6 +290,7 @@ export function toFeedbackPanel(db: HeronDb, pr: Pr, repo: Repo, viewerLogin: st
     dryRuns: repo.iterationDryRuns,
     loopCapped: pr.heronPushStreak >= settings.loopCap,
     pushStreak: pr.heronPushStreak,
+    pausedAt: pr.iterationPausedAt,
     batches: batches.map(toIterationSummary),
     groups: eligibility.ok ? groups : [],
   };
