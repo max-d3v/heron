@@ -14,6 +14,7 @@ import {
   iterationTrailer,
   orderFeedbackItems,
   parseIterationOutput,
+  UNREPORTED_NOTE,
   type Feedback,
   type Iteration,
   type CwdKind,
@@ -588,8 +589,6 @@ function prContext(repo: Repo, pr: Pr, headSha: string): PrContext {
   };
 }
 
-/** The note on an item the agent left out of its output. It's no reason to give a reviewer, so it's never posted. */
-const UNREPORTED_NOTE = "The agent didn't report on this item.";
 
 /** One entry per item, in order: unknown numbers dropped, duplicates collapsed, missing ones reported as not addressed. */
 function normalizeOutput(output: IterationOutput, items: IterationItem[]): IterationOutput {

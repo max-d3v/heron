@@ -22,6 +22,7 @@ import type { HeronDb, ReviewPatch } from "@heron/db";
 import type { GitClient } from "@heron/git";
 import type { GitHubClient } from "@heron/github";
 import { runReview, type HarnessEntry } from "@heron/harness";
+import { dryRunHistory } from "./dry-run-history.ts";
 import type { Paths } from "./paths.ts";
 import { skillCommand, type SkillService } from "./skills.ts";
 import type { Store } from "./store.ts";
@@ -57,6 +58,8 @@ export interface PipelineDeps {
 interface HeronMeta {
   sinceLastReviewFrom: string | null;
   previousReviewCount: number;
+  /** Absent in a pr.json written before dry runs were listed (a run resumed after an update). */
+  previousDryRunCount?: number;
 }
 
 /**
@@ -196,14 +199,18 @@ export class Pipeline {
 
     const conversation = await github.getConversation(owner, name, pr.number);
     signal.throwIfAborted();
+    // Dry runs were never posted, so GitHub doesn't have them: they and what came of their findings come from Heron.
+    const { db } = this.d;
+    const dryRuns = dryRunHistory(db.listReviewsForPr(pr.id), db.listFeedbackForPr(pr.id), db.listIterationsForPr(pr.id), review.id);
+    const previous = [...conversation.ours, ...dryRuns].sort((a, b) => (a.submittedAt ?? "").localeCompare(b.submittedAt ?? ""));
 
     const dir = join(worktree, ".heron");
     await rm(dir, { recursive: true, force: true });
     await mkdir(dir, { recursive: true });
-    const meta: HeronMeta = { sinceLastReviewFrom: since?.from ?? null, previousReviewCount: conversation.ours.length };
+    const meta: HeronMeta = { sinceLastReviewFrom: since?.from ?? null, previousReviewCount: conversation.ours.length, previousDryRunCount: dryRuns.length };
     await writeFile(join(dir, "pr.diff"), diff);
     if (since) await writeFile(join(dir, "since-last-review.diff"), since.diff);
-    await writeFile(join(dir, "previous-reviews.json"), `${JSON.stringify(conversation.ours, null, 2)}\n`);
+    await writeFile(join(dir, "previous-reviews.json"), `${JSON.stringify(previous, null, 2)}\n`);
     await writeFile(join(dir, "pr-comments.json"), `${JSON.stringify(conversation.humans, null, 2)}\n`);
     await writeFile(
       join(dir, "pr.json"),
@@ -290,6 +297,7 @@ export class Pipeline {
         files: {
           sinceLastReview: meta.sinceLastReviewFrom ? { fromSha: meta.sinceLastReviewFrom } : null,
           previousReviewCount: meta.previousReviewCount,
+          previousDryRunCount: meta.previousDryRunCount ?? 0,
         },
         transcriptPath,
         clientApp: `heron/${this.d.version}`,

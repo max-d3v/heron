@@ -15,7 +15,10 @@ export interface PrContext {
 
 export interface HeronFiles {
   sinceLastReview: { fromSha: string } | null;
+  /** Heron's reviews posted on GitHub. */
   previousReviewCount: number;
+  /** Heron's earlier dry runs on the PR, never posted, listed in the same file. */
+  previousDryRunCount: number;
 }
 
 /** Shown read-only under the prompt editor, so prompt authors know what's added. */
@@ -26,7 +29,8 @@ export const OUTPUT_CONTRACT_SUMMARY = `Heron adds the following to every run. Y
 • Context files in .heron/ (use or ignore them):
     pr.diff                  full diff base…head
     since-last-review.diff   changes since Heron's last review (when the old SHA is an ancestor)
-    previous-reviews.json    reviews Heron already posted on this PR
+    previous-reviews.json    Heron's earlier reviews on this PR: posted ones, and dry runs
+                             (never posted) with what came of each finding
     pr-comments.json         humans' review comments, replies and conversation
     pr.json                  PR metadata
 • gh is not available (and network git calls fail), so skills must not rely on !\`gh …\`.
@@ -62,7 +66,9 @@ export function buildSystemPromptAppend(pr: PrContext, files: HeronFiles): strin
     files.sinceLastReview
       ? `- \`.heron/since-last-review.diff\`: what changed since Heron last reviewed this PR at ${files.sinceLastReview.fromSha.slice(0, 12)}.`
       : null,
-    `- \`.heron/previous-reviews.json\`: reviews Heron already posted on this PR (${files.previousReviewCount}), with their inline comments and any replies.`,
+    files.previousDryRunCount > 0
+      ? `- \`.heron/previous-reviews.json\`: Heron's earlier reviews on this PR, oldest first: those posted on GitHub (${files.previousReviewCount}), with their inline comments and any replies, and its dry runs (${files.previousDryRunCount}), marked \`"dryRun": true\`, which were never posted. Each dry-run finding (\`bodyOutcome\` for the body, \`outcome\` for each comment) says what came of it: \`addressed\` by an iteration (with its \`commit\`), \`not_addressed\` with the author's reason, \`no_change\` from triage, or \`null\` when nothing has yet.`
+      : `- \`.heron/previous-reviews.json\`: reviews Heron already posted on this PR (${files.previousReviewCount}), with their inline comments and any replies.`,
     "- `.heron/pr-comments.json`: review comments, replies and conversation comments from humans.",
     "- `.heron/pr.json`: PR metadata.",
   ].filter(Boolean);
@@ -93,7 +99,11 @@ The current directory is a checkout of the PR head (detached at ${pr.headSha.sli
 - Context files:
 ${fileLines.join("\n")}
 
-Focus on what changed. Don't repeat earlier comments (yours or others') unless they still apply and matter.
+Focus on what changed. Don't repeat earlier comments (yours or others') unless they still apply and matter.${
+    files.previousDryRunCount > 0
+      ? " Dry runs are the exception: nobody sees them on the PR, and the author sees only the latest review in Heron, so raise a dry-run finding again when it still applies. Skip one that was addressed (check that it was), and one left alone for a reason you agree with."
+      : ""
+  }
 
 ${OUTPUT_CONTRACT}
 `;
