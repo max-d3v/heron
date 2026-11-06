@@ -103,6 +103,9 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
 function FeedbackSection({ pr, panel, readyId }: { pr: PrDetail; panel: FeedbackPanel; readyId: number | null }) {
   const now = useNow(5_000);
   const iterate = useMutation(orpc.iterations.iterate.mutationOptions());
+  // The same Cancel as on a queued or running iteration. The section lists every open batch's comments, so it stops them all.
+  const cancel = useMutation({ mutationFn: (ids: number[]) => Promise.all(ids.map((id) => client.iterations.cancel({ id }))) });
+  const error = iterate.error ?? cancel.error;
   const batch = panel.batches[0]!;
   const waiting = panel.batches.find((b) => b.state === "awaiting_start") ?? null;
   const toChange = panel.groups.filter((g) => g.verdict === "change").length;
@@ -122,6 +125,9 @@ function FeedbackSection({ pr, panel, readyId }: { pr: PrDetail; panel: Feedback
         {batch.state === "triaging" && <Spinner />}
         <span className="min-w-0 truncate text-[12px] text-fg-2">{status}</span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <Button size="sm" icon={<Square className="size-3" />} busy={cancel.isPending} onClick={() => cancel.mutate(panel.batches.map((b) => b.id))}>
+            Cancel
+          </Button>
           {waiting && (
             <ButtonTip content={!panel.enabled ? "Iterations are off for this repo" : readyId !== null ? "Push or discard the result that's ready first" : null}>
               <Button
@@ -138,7 +144,7 @@ function FeedbackSection({ pr, panel, readyId }: { pr: PrDetail; panel: Feedback
           )}
         </div>
       </div>
-      {iterate.error && <ErrorNote>{errorText(iterate.error)}</ErrorNote>}
+      {error && <ErrorNote>{errorText(error)}</ErrorNote>}
       <div className="overflow-hidden rounded-[10px] bg-content shadow-[0_0_0_0.5px_var(--line-strong)]">
         {panel.groups.length === 0 ? (
           <div className="px-4 py-3 text-[12.5px] text-fg-3">No comments in this batch.</div>
@@ -327,7 +333,9 @@ function FinishedIteration({ pr, summary, on }: { pr: PrDetail; summary: Iterati
   if (detail.isError) return <ErrorNote>{errorText(detail.error)}</ErrorNote>;
   const it = detail.data;
   const busy = pr.iterations.some((i) => i.id !== it.id && (isInFlightIteration(i) || i.state === "queued"));
-  const canRerun = pr.state === "open" && it.state !== "stale" && it.state !== "skipped" && !busy;
+  // A batch cancelled (or failed) before triage finished has no comments marked for a change: they join the next batch instead.
+  const untriaged = it.startedAt === null && it.triageTotal === 0;
+  const canRerun = pr.state === "open" && it.state !== "stale" && it.state !== "skipped" && !untriaged && !busy;
   const error = push.error ?? discard.error ?? uncommit.error ?? rerun.error ?? rerunInWorktree.error ?? openInClaude.error;
   // A worktree iteration's folder goes when the PR closes, and the session can't continue without it.
   const canOpen = it.sessionId !== null && (it.cwdKind === "local" || pr.state === "open");
