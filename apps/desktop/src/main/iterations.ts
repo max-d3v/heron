@@ -9,6 +9,7 @@ import {
   feedbackCounts,
   isHeldBack,
   isIterationActive,
+  isIterationCandidate,
   isIterationInFlight,
   isIterationTerminal,
   iterationEligibility,
@@ -155,14 +156,7 @@ export class IterationScheduler {
     const { db } = this.d;
     const viewer = this.d.viewerLogin();
     const live = new Set(db.listIterationsForPr(pr.id).filter((i) => isIterationActive(i.state)).map((i) => i.id));
-    return db
-      .listFeedbackForPr(pr.id, "unhandled")
-      .filter(
-        (f) =>
-          (f.iterationId === null || !live.has(f.iterationId)) &&
-          (f.reviewId === null || repo.iterationDryRuns) &&
-          feedbackCounts(repo.iterationComments, f.author, viewer),
-      );
+    return db.listFeedbackForPr(pr.id, "unhandled").filter((f) => isIterationCandidate(f, repo, viewer, live));
   }
 
   /**

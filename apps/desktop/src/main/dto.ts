@@ -1,8 +1,8 @@
 import {
-  feedbackCounts,
   isHeldBack,
   isInScope,
   isIterationActive,
+  isIterationCandidate,
   reviewsAutomatically,
   isTerminal,
   iterationEligibility,
@@ -262,7 +262,7 @@ export function toFeedbackPanel(db: HeronDb, pr: Pr, repo: Repo, viewerLogin: st
     (f) =>
       f.status !== "ignored" &&
       ((f.iterationId !== null && batchIds.has(f.iterationId)) ||
-        (f.status === "unhandled" && (f.iterationId === null || !live.has(f.iterationId)) && feedbackCounts(repo.iterationComments, f.author, viewerLogin))),
+        isIterationCandidate(f, repo, viewerLogin, live)),
   );
   const groups = orderFeedbackItems(groupFeedback(rows, all)).map((g) => {
     const pending = g.rows.some((r) => r.verdict === null);
