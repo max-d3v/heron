@@ -632,16 +632,17 @@ export class IterationScheduler {
     return next;
   }
 
+  /** Stops the iteration and pauses iterations on its PR (§15.10): otherwise the next comment would start the agent again. */
   cancel(iterationId: number): void {
     const { db } = this.d;
     const it = db.getIteration(iterationId);
     if (!it || !isIterationActive(it.state)) return;
     if (it.state === "ready") throw new Error("Use Discard for a result that's ready");
+    const pr = db.getPr(it.prId);
+    const repo = pr ? this.eligibleRepo(pr) : null;
     // A debouncing batch claims its comments only at triage. Left unclaimed, they'd count as new
     // at the next sync and start the batch again, so the cancelled one takes them with it.
-    const pr = it.state === "debouncing" ? db.getPr(it.prId) : null;
-    const repo = pr ? this.eligibleRepo(pr) : null;
-    if (pr && repo) {
+    if (pr && repo && it.state === "debouncing") {
       db.updateFeedback(
         this.candidates(pr, repo)
           .filter((f) => f.iterationId === null)
@@ -650,6 +651,8 @@ export class IterationScheduler {
       );
     }
     this.stop(it, "Cancelled");
+    // Where Pause itself would be refused (iterations off for the repo, a PR they don't run on), nothing would start anyway.
+    if (pr && repo?.iterationEnabled && pr.iterationPausedAt === null) this.setPaused(pr.id, "Iterations paused on this PR (Cancel)");
     this.tick();
   }
 
@@ -660,14 +663,18 @@ export class IterationScheduler {
    * batch waits. A run already going finishes, but stops at `ready` instead of pushing on its own.
    */
   pause(prId: number): void {
-    const { db, store } = this.d;
+    const { db } = this.d;
     const pr = db.getPr(prId);
     if (!pr) throw new Error("PR not found");
     if (pr.iterationPausedAt !== null) return;
     this.requireOn(prId);
     if (!this.eligibleRepo(pr)) throw new Error(iterationEligibilityReason(db, pr, this.d.viewerLogin()));
-    db.updatePr(prId, { iterationPausedAt: Date.now() });
-    store.activity({ prId, reviewId: null, kind: "iteration.paused", message: "Iterations paused on this PR" });
+    this.setPaused(prId, "Iterations paused on this PR");
+  }
+
+  private setPaused(prId: number, message: string): void {
+    this.d.db.updatePr(prId, { iterationPausedAt: Date.now() });
+    this.d.store.activity({ prId, reviewId: null, kind: "iteration.paused", message });
     this.park(prId);
   }
 
