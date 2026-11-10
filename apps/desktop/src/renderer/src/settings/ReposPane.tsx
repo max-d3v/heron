@@ -6,6 +6,7 @@ import { cn } from "../lib/cn";
 import { ago } from "../lib/format";
 import { isWindows, labels } from "../lib/platform";
 import { errorText, orpc } from "../lib/rpc";
+import { HeaderActions } from "./HeaderActions";
 import { REPO_FIELD_ID, type RepoField } from "../lib/settings-nav";
 import { Button, Checkbox, Confirm, Dialog, Empty, ErrorNote, Field, Segmented, Select, Spinner, Switch, TextField } from "../components/ui";
 
@@ -46,12 +47,12 @@ export function ReposPane({ initialRepoId, focusField }: { initialRepoId?: numbe
             );
           })}
         </div>
-        <div className="border-t border-line p-2">
-          <Button icon={<Plus className="size-3.5" />} className="w-full" onClick={() => setAdding(true)}>
-            Add repository
-          </Button>
-        </div>
       </div>
+      <HeaderActions>
+        <Button variant="primary" icon={<Plus className="size-3.5" />} onClick={() => setAdding(true)}>
+          Add repository
+        </Button>
+      </HeaderActions>
       <div className="min-w-0 flex-1 overflow-y-auto">
         {current ? (
           <RepoEditor key={current.id} repo={current} onRemoved={() => setSelected(null)} />

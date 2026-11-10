@@ -26,7 +26,7 @@ export function GeneralPane() {
   const iterationsOn = repos.data?.some((r) => r.iterationEnabled) ?? true;
 
   return (
-    <div className="mx-auto max-w-[640px] px-6 py-5">
+    <div className="max-w-[640px] px-6 py-5">
       {update.error && (
         <div className="mb-3">
           <ErrorNote>{errorText(update.error)}</ErrorNote>

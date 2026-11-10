@@ -462,6 +462,7 @@ Repos (Settings → Repos): the **Review** and **Iteration** sections each have 
   - title: `commitTitle`, in [Conventional Commits](https://www.conventionalcommits.org) form: `type(scope)!: description`, with `type` one of `fix`, `feat`, `refactor`, `perf`, `test`, `docs`, `style`, `build`, `ci`, `chore`, `revert` (`COMMIT_TYPES`), the scope and `!` optional. The output schema enforces it, so the SDK asks the agent to fix a title that doesn't match.
   - body: a link and the note for each addressed comment
   - trailer: `Heron-Iteration: <id>`
+  - identity: git's `user.name` and `user.email`. Where git has none (never set, or set only in your own checkout while Heron commits in its worktree), the commit is by your GitHub account: its name (the login when there's none) and its noreply address, `<id>+<login>@users.noreply.github.com`. They're passed for that one commit and written to no config, and Activity says so. Git never makes one up from the computer's user and host name (`user.useConfigOnly`).
 - The commit is also kept on `refs/heron/iterations/<id>` in Heron's clone (fetched from the checkout in local mode), so a reset never loses it.
 - **No changes** → `no_changes`: no commit. When there are `not_addressed` inline threads to answer, it goes through `replying` first.
 - **Push:** `git push https://github.com/<owner>/<name> <sha>:refs/heads/<headRef>` with the `gh` token (§9), never forced, in both modes. Auto-push on → right away, unless iterations are paused on the PR (§15.10). Off → `ready` until **Push**, **Discard** or, in local checkout mode, **Uncommit** (`git reset --soft` to the PR head on the local checkout, so the changes stay staged for you to finish; Heron pushes and replies nothing).
@@ -513,7 +514,8 @@ A batch that's triaged while another one waits (`held` or `awaiting_start`) is m
   - **Cancel**, the same button at every stage up to `committing`: in the Feedback section while a batch is debouncing, triaging, waiting for Iterate or held (it stops every open batch), then on the queued or running iteration. `ready` has Discard instead, and a push and its replies don't stop halfway.
     - Cancelled comments stay unhandled and join the batch the next new comment starts, which triages them again. A batch cancelled while still debouncing takes its comments with it, so the next sync doesn't start it again.
     - A batch cancelled (or failed) before triage finished has no Re-run: it has nothing marked for a change.
-  - **Pause / Resume** (§15.10), once per tab, leftmost in the action row of the iteration shown (next to Re-run, or Cancel while it's queued or running); with no iteration, in the Feedback header; with neither, under the empty state. While paused, an orange banner: "Iterations on this PR were paused 2h ago. Comments are still triaged, and wait until you resume."
+    - Cancel also pauses iterations on the PR (§15.10), so nothing starts the agent again until **Resume**.
+  - **Pause / Resume** (§15.10), one button that never moves: at the right of a row at the top of the tab, above Feedback and the iteration. The row reads "Iterations start on their own on this PR." or "Iterations on this PR wait for Iterate." (manual start or loop cap); while paused it turns orange: "Iterations on this PR were paused 2h ago. Comments are still triaged, and wait until you resume."
   - **Latest iteration** that ran the agent: live steps while running. Then the commit title, addressed and not-addressed items with their notes, a unified diff (collapsible files, no syntax highlighting), the commit link, **Push** / **Discard** / **Uncommit** (when `ready`; Uncommit in local checkout mode only) and **Re-run**.
   - **Open in Claude**, once the agent ran: opens `claude://resume?session=<sessionId>`, which imports the agent's saved session into the Claude app's Code tab, to continue in the folder it ran in. Hidden for a worktree iteration once the PR closes (its worktree is gone); if the worktree was removed anyway (cleared cache, a reopened PR), the RPC errors instead of opening.
   - On other people's PRs: an empty state, "Iterations only run on PRs you opened".
@@ -526,7 +528,7 @@ A batch that's triaged while another one waits (`held` or `awaiting_start`) is m
 
 ### 15.10 Pause on one PR
 Stop iterations on one PR, e.g. while you work on its branch yourself, without turning them off for the repo or pausing the whole queue.
-- **Pause** (Iteration tab, §15.9) sets `prs.iteration_paused_at`. Only on an open PR iterations run on (§15.1), with iterations on for the repo. It lasts until **Resume**, across restarts; a PR that closes and reopens is still paused. Reviews aren't affected, and Pause All / Resume (§6.3) neither sets nor clears it.
+- **Pause** (Iteration tab, §15.9) sets `prs.iteration_paused_at`, and so does **Cancel** on a batch or an iteration (§15.9). Only on an open PR iterations run on (§15.1), with iterations on for the repo. It lasts until **Resume**, across restarts; a PR that closes and reopens is still paused. Reviews aren't affected, and Pause All / Resume (§6.3) neither sets nor clears it.
 - **While paused, nothing starts the agent on the PR:**
   - Comments still sync and are triaged (§15.3, §15.4). A batch with something to change goes to `awaiting_start`, with no "Feedback waiting" notification.
   - **Iterate**, **Re-run** and **Re-run in a worktree** are refused ("Resume iterations on this PR to run").
@@ -534,7 +536,7 @@ Stop iterations on one PR, e.g. while you work on its branch yourself, without t
   - Work already past that carries on: a run in `preparing`, `running` or `committing` finishes (Cancel still works), and so do a retry of `committing`, `pushing` or `replying` and a push in progress.
   - A result stops at `ready` even with `iterationAutoPush` on. **Push**, **Discard** and **Uncommit** still work: they're your clicks and start no agent.
 - **Resume** clears it. Batches in `awaiting_start` go where the repo sends them: `queued` (or `held` behind a `ready` result) when `iterationAutoStart` is on and the loop cap allows; otherwise they keep waiting for Iterate. A result held at `ready` stays there for Push. The loop cap's streak isn't reset.
-- Activity logs "Iterations paused on this PR" and "Iterations resumed on this PR".
+- Activity logs "Iterations paused on this PR" ("… (Cancel)" when a Cancel paused it) and "Iterations resumed on this PR".
 
 ---
 

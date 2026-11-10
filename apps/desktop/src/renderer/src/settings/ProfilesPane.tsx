@@ -6,7 +6,8 @@ import { ChevronRight, Plus, SlidersHorizontal, Star } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import { errorText, orpc } from "../lib/rpc";
-import { Badge, Button, Confirm, Empty, ErrorNote, Field, Segmented, Select, TextArea, TextField } from "../components/ui";
+import { HeaderActions } from "./HeaderActions";
+import { Badge, Button, Confirm, Empty, ErrorNote, Field, MenuButton, Segmented, Select, TextArea, TextField } from "../components/ui";
 
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
@@ -78,15 +79,18 @@ export function ProfilesPane() {
             </div>
           ))}
         </div>
-        <div className="flex flex-col gap-1.5 border-t border-line p-2">
-          <Button icon={<Plus className="size-3.5" />} className="w-full" onClick={() => setSelected({ new: "review" })}>
-            New review profile
-          </Button>
-          <Button icon={<Plus className="size-3.5" />} className="w-full" onClick={() => setSelected({ new: "iteration" })}>
-            New iteration profile
-          </Button>
-        </div>
       </div>
+      <HeaderActions>
+        <MenuButton
+          variant="primary"
+          icon={<Plus className="size-3.5" />}
+          label="New profile"
+          items={[
+            { label: "Review profile", onSelect: () => setSelected({ new: "review" }) },
+            { label: "Iteration profile", onSelect: () => setSelected({ new: "iteration" }) },
+          ]}
+        />
+      </HeaderActions>
       <div className="min-w-0 flex-1 overflow-y-auto">
         {current ? (
           <ProfileEditor

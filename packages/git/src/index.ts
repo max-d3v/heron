@@ -34,6 +34,18 @@ const CLONE_CONFIG: Array<[string, string]> = [
   ["core.autocrlf", "false"],
 ];
 
+/**
+ * Git never makes up a name and email from the computer's user and host name
+ * (`james@AsusJames.(none)`): it's nobody's address, and git only accepts some of them.
+ */
+const NO_GUESSED_IDENTITY = ["-c", "user.useConfigOnly=true"];
+
+/** Who a commit is by. */
+export interface GitIdentity {
+  name: string;
+  email: string;
+}
+
 export class GitError extends Error {
   constructor(
     message: string,
@@ -239,16 +251,32 @@ export class GitClient {
   /**
    * Commit everything in the checkout as one commit on top of `base`; commits the agent made
    * anyway are folded in by a soft reset first. Returns the commit, or null when nothing changed.
-   * The commit uses the user's git identity; hooks and signing are off, since nobody is there to answer them.
+   * The commit uses the user's git identity, or `fallback` where git has none (§15.6); hooks and
+   * signing are off, since nobody is there to answer them.
    */
-  async commitAll(dir: string, base: string, message: { title: string; body: string; trailer: string }): Promise<string | null> {
+  async commitAll(
+    dir: string,
+    base: string,
+    message: { title: string; body: string; trailer: string },
+    fallback: () => Promise<GitIdentity>,
+  ): Promise<string | null> {
     if ((await this.headSha(dir)) !== base) await this.resetSoft(dir, base);
     await this.run(["add", "-A"], { cwd: dir });
     const { code } = await this.run(["diff", "--cached", "--quiet"], { cwd: dir, okCodes: [1] });
     if (code === 0) return null;
     const paragraphs = [message.title, message.body, message.trailer].filter((p) => p.trim()).flatMap((p) => ["-m", p]);
-    await this.run(["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-q", ...paragraphs], { cwd: dir });
+    // Asked for one commit only, so nothing is written to the user's config.
+    const identity = (await this.hasIdentity(dir)) ? [] : await fallback().then((i) => ["-c", `user.name=${i.name}`, "-c", `user.email=${i.email}`]);
+    await this.run(["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...NO_GUESSED_IDENTITY, ...identity, "commit", "-q", ...paragraphs], {
+      cwd: dir,
+    });
     return this.headSha(dir);
+  }
+
+  /** Whether git has a name and email for a commit in `dir`, from its config or the environment. */
+  private async hasIdentity(dir: string): Promise<boolean> {
+    const { code } = await this.run([...NO_GUESSED_IDENTITY, "var", "GIT_COMMITTER_IDENT"], { cwd: dir, okCodes: [128] });
+    return code === 0;
   }
 
   /** HEAD, when it is a commit right on top of `base` whose message carries `trailer` (a commit made before a crash). */
