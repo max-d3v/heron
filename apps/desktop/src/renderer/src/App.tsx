@@ -159,7 +159,7 @@ export function App() {
             )}
           </div>
         </main>
-        {settingsTab && <Settings tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} />}
+        <Settings tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} />
       </div>
     </TooltipProvider>
   );
