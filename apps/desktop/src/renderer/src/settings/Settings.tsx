@@ -2,6 +2,7 @@ import { FolderGit2, Settings as Gear, SlidersHorizontal, Sparkles, X } from "lu
 import { Dialog as RDialog } from "radix-ui";
 import { useState } from "react";
 import { cn } from "../lib/cn";
+import type { SettingsTarget } from "../lib/settings-nav";
 import { GeneralPane } from "./GeneralPane";
 import { HeaderSlot } from "./HeaderActions";
 import { ProfilesPane } from "./ProfilesPane";
@@ -24,7 +25,18 @@ const TAB_ORDER: SettingsTab[] = ["repos", "profiles", "skills", "general"];
  * dialog, Escape closes whatever is on top first (a select, a nested dialog), then the modal.
  * It is open while `tab` is set, and stays mounted when closed so the closing animation can play.
  */
-export function Settings({ tab: openTab, onTab, onClose }: { tab: SettingsTab | null; onTab: (t: SettingsTab) => void; onClose: () => void }) {
+export function Settings({
+  tab: openTab,
+  target,
+  onTab,
+  onClose,
+}: {
+  tab: SettingsTab | null;
+  /** The repo (and field) the Repos tab opens on. */
+  target?: SettingsTarget | null;
+  onTab: (t: SettingsTab) => void;
+  onClose: () => void;
+}) {
   // The section to show: the open one, or while closing, the one that was open.
   const [tab, setTab] = useState<SettingsTab>(openTab ?? "repos");
   if (openTab && openTab !== tab) setTab(openTab);
@@ -70,7 +82,7 @@ export function Settings({ tab: openTab, onTab, onClose }: { tab: SettingsTab | 
             </div>
             <HeaderSlot value={slot}>
               <div className="min-h-0 flex-1">
-                {tab === "repos" && <ReposPane />}
+                {tab === "repos" && <ReposPane initialRepoId={target?.repoId} focusField={target?.field} />}
                 {tab === "profiles" && <ProfilesPane />}
                 {tab === "skills" && <SkillsPane />}
                 {tab === "general" && (

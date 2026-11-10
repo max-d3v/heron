@@ -10,6 +10,7 @@ import { Empty, TooltipProvider } from "./components/ui";
 import { useStream } from "./lib/hooks";
 import { isWindows } from "./lib/platform";
 import { client, orpc } from "./lib/rpc";
+import { OpenSettingsContext, type SettingsTarget } from "./lib/settings-nav";
 import { isListed, isSettled } from "./lib/visibility";
 import { Settings, type SettingsTab } from "./settings/Settings";
 
@@ -17,6 +18,8 @@ export function App() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<number | null>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(null);
+  // The repo (and field) Settings opens on, when a link asked for one; gone once Settings closes.
+  const [settingsTarget, setSettingsTarget] = useState<SettingsTarget | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [requestedTab, setRequestedTab] = useState<{ tab: Tab; at: number } | null>(null);
 
@@ -66,6 +69,14 @@ export function App() {
   }, [list, listed, selected]);
 
   const openSettings = useCallback((tab: SettingsTab = "repos") => setSettingsTab(tab), []);
+  const openSettingsAt = useCallback((target: SettingsTarget) => {
+    setSettingsTarget(target);
+    setSettingsTab(target.tab);
+  }, []);
+  const closeSettings = useCallback(() => {
+    setSettingsTab(null);
+    setSettingsTarget(null);
+  }, []);
 
   // Windows has no app menu to carry Ctrl+, (§17.8); on macOS ⌘, comes from the menu as an openSettings event.
   useEffect(() => {
@@ -86,7 +97,7 @@ export function App() {
       try {
         for await (const e of await client.app.events(undefined, { signal: ac.signal })) {
           if (e.kind === "openPr") {
-            setSettingsTab(null);
+            closeSettings();
             setSelected(e.prId);
             setRequestedTab(e.tab ? { tab: e.tab, at: Date.now() } : null);
           } else if (e.kind === "openSettings") {
@@ -100,7 +111,7 @@ export function App() {
       }
     })();
     return () => ac.abort();
-  }, [qc]);
+  }, [qc, closeSettings]);
 
   if (!doctor.data) {
     return (
@@ -134,7 +145,9 @@ export function App() {
           <Banner queue={queue} onOpenSetup={() => openSettings("general")} />
           <div className="min-h-0 flex-1">
             {selected !== null ? (
-              <PrDetail key={selected} prId={selected} requestedTab={requestedTab} />
+              <OpenSettingsContext.Provider value={openSettingsAt}>
+                <PrDetail key={selected} prId={selected} requestedTab={requestedTab} />
+              </OpenSettingsContext.Provider>
             ) : (
               <div className="relative h-full">
                 <div className="drag absolute inset-x-0 top-0 h-[52px]" />
@@ -160,7 +173,7 @@ export function App() {
             )}
           </div>
         </main>
-        <Settings tab={settingsTab} onTab={setSettingsTab} onClose={() => setSettingsTab(null)} />
+        <Settings tab={settingsTab} target={settingsTarget} onTab={setSettingsTab} onClose={closeSettings} />
       </div>
     </TooltipProvider>
   );
