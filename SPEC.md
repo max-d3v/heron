@@ -513,6 +513,7 @@ A batch that's triaged while another one waits (`held` or `awaiting_start`) is m
   - **Cancel**, the same button at every stage up to `committing`: in the Feedback section while a batch is debouncing, triaging, waiting for Iterate or held (it stops every open batch), then on the queued or running iteration. `ready` has Discard instead, and a push and its replies don't stop halfway.
     - Cancelled comments stay unhandled and join the batch the next new comment starts, which triages them again. A batch cancelled while still debouncing takes its comments with it, so the next sync doesn't start it again.
     - A batch cancelled (or failed) before triage finished has no Re-run: it has nothing marked for a change.
+    - Cancel also pauses iterations on the PR (§15.10), so nothing starts the agent again until **Resume**.
   - **Pause / Resume** (§15.10), once per tab, leftmost in the action row of the iteration shown (next to Re-run, or Cancel while it's queued or running); with no iteration, in the Feedback header; with neither, under the empty state. While paused, an orange banner: "Iterations on this PR were paused 2h ago. Comments are still triaged, and wait until you resume."
   - **Latest iteration** that ran the agent: live steps while running. Then the commit title, addressed and not-addressed items with their notes, a unified diff (collapsible files, no syntax highlighting), the commit link, **Push** / **Discard** / **Uncommit** (when `ready`; Uncommit in local checkout mode only) and **Re-run**.
   - **Open in Claude**, once the agent ran: opens `claude://resume?session=<sessionId>`, which imports the agent's saved session into the Claude app's Code tab, to continue in the folder it ran in. Hidden for a worktree iteration once the PR closes (its worktree is gone); if the worktree was removed anyway (cleared cache, a reopened PR), the RPC errors instead of opening.
@@ -526,7 +527,7 @@ A batch that's triaged while another one waits (`held` or `awaiting_start`) is m
 
 ### 15.10 Pause on one PR
 Stop iterations on one PR, e.g. while you work on its branch yourself, without turning them off for the repo or pausing the whole queue.
-- **Pause** (Iteration tab, §15.9) sets `prs.iteration_paused_at`. Only on an open PR iterations run on (§15.1), with iterations on for the repo. It lasts until **Resume**, across restarts; a PR that closes and reopens is still paused. Reviews aren't affected, and Pause All / Resume (§6.3) neither sets nor clears it.
+- **Pause** (Iteration tab, §15.9) sets `prs.iteration_paused_at`, and so does **Cancel** on a batch or an iteration (§15.9). Only on an open PR iterations run on (§15.1), with iterations on for the repo. It lasts until **Resume**, across restarts; a PR that closes and reopens is still paused. Reviews aren't affected, and Pause All / Resume (§6.3) neither sets nor clears it.
 - **While paused, nothing starts the agent on the PR:**
   - Comments still sync and are triaged (§15.3, §15.4). A batch with something to change goes to `awaiting_start`, with no "Feedback waiting" notification.
   - **Iterate**, **Re-run** and **Re-run in a worktree** are refused ("Resume iterations on this PR to run").
@@ -534,7 +535,7 @@ Stop iterations on one PR, e.g. while you work on its branch yourself, without t
   - Work already past that carries on: a run in `preparing`, `running` or `committing` finishes (Cancel still works), and so do a retry of `committing`, `pushing` or `replying` and a push in progress.
   - A result stops at `ready` even with `iterationAutoPush` on. **Push**, **Discard** and **Uncommit** still work: they're your clicks and start no agent.
 - **Resume** clears it. Batches in `awaiting_start` go where the repo sends them: `queued` (or `held` behind a `ready` result) when `iterationAutoStart` is on and the loop cap allows; otherwise they keep waiting for Iterate. A result held at `ready` stays there for Push. The loop cap's streak isn't reset.
-- Activity logs "Iterations paused on this PR" and "Iterations resumed on this PR".
+- Activity logs "Iterations paused on this PR" ("… (Cancel)" when a Cancel paused it) and "Iterations resumed on this PR".
 
 ---
 
