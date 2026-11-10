@@ -49,7 +49,6 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
     open && p.eligible ? (
       <PauseButton
         paused={paused}
-        enabled={p.enabled}
         busy={pause.isPending || resume.isPending}
         onClick={() => (paused ? resume.mutate({ prId: pr.id }) : pause.mutate({ prId: pr.id }))}
       />
@@ -136,19 +135,17 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
   );
 }
 
-/** Pause or resume iterations on this PR (§15.10). Resume works even while iterations are off for the repo. */
-function PauseButton({ paused, enabled, busy, onClick }: { paused: boolean; enabled: boolean; busy: boolean; onClick: () => void }) {
-  const tip = paused
-    ? "Let Heron start iterations on this PR again"
-    : enabled
-      ? "Start no new iterations on this PR until you resume"
-      : "Iterations are off for this repo";
+/**
+ * Pause or resume iterations on this PR (§15.10). Only rendered while paused or while iterations are on for the repo,
+ * so Pause is never shown when it would do nothing, and Resume works even while iterations are off.
+ */
+function PauseButton({ paused, busy, onClick }: { paused: boolean; busy: boolean; onClick: () => void }) {
+  const tip = paused ? "Let Heron start iterations on this PR again" : "Start no new iterations on this PR until you resume";
   return (
     <ButtonTip content={tip}>
       <Button
         size="sm"
         icon={paused ? <Play className="size-3" /> : <Pause className="size-3" />}
-        disabled={!paused && !enabled}
         busy={busy}
         onClick={onClick}
       >
