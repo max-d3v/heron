@@ -1,5 +1,5 @@
 import type { IterationBadge, PrListItem, QueueStatusDto } from "@heron/rpc";
-import { Eye, EyeOff, GitPullRequest, MessageSquareText, Pause, Play, Search, Settings, TriangleAlert, Upload } from "lucide-react";
+import { ChevronRight, Eye, EyeOff, GitPullRequest, MessageSquareText, Pause, Play, Search, Settings, TriangleAlert, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import { relativeTime } from "../lib/format";
@@ -33,6 +33,7 @@ export function Sidebar({
 }) {
   const [search, setSearch] = useState("");
   const [repo, setRepo] = useState("all");
+  const [closedExpanded, setClosedExpanded] = useState(false);
   const now = useNow(30_000);
 
   const repos = useMemo(() => [...new Set(prs.map((p) => p.repo))].sort(), [prs]);
@@ -52,6 +53,9 @@ export function Sidebar({
       );
     });
   }, [prs, search, repo, showAll]);
+
+  const open = useMemo(() => visible.filter((p) => p.state === "open"), [visible]);
+  const closed = useMemo(() => visible.filter((p) => p.state !== "open"), [visible]);
 
   return (
     <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-line bg-sidebar">
@@ -90,13 +94,23 @@ export function Sidebar({
             {!loading && prs.length > 0 && !search && repo === "all" && !showAll && "New PRs in scope show up here. The other open PRs are one click away below."}
           </Empty>
         ) : (
-          <ul className="flex flex-col gap-px">
-            {visible.map((p) => (
-              <li key={p.id}>
-                <PrRow pr={p} selected={p.id === selectedId} now={now} onClick={() => onSelect(p.id)} />
-              </li>
-            ))}
-          </ul>
+          <>
+            <PrList prs={open} selectedId={selectedId} now={now} onSelect={onSelect} />
+            {closed.length > 0 && (
+              <section className={cn(open.length > 0 && "mt-2")}>
+                <button
+                  onClick={() => setClosedExpanded((v) => !v)}
+                  aria-expanded={closedExpanded}
+                  className="flex h-[26px] w-full items-center gap-1.5 rounded-[7px] px-2 text-left text-[11.5px] font-medium text-fg-2 outline-none hover:bg-hover hover:text-fg"
+                >
+                  <ChevronRight className={cn("size-3.5 transition-transform", closedExpanded && "rotate-90")} />
+                  Closed
+                  <span className="ml-auto tabular-nums text-fg-3">{closed.length}</span>
+                </button>
+                {closedExpanded && <PrList prs={closed} selectedId={selectedId} now={now} onSelect={onSelect} />}
+              </section>
+            )}
+          </>
         )}
       </div>
 
@@ -120,6 +134,19 @@ export function Sidebar({
         ) : null}
       </div>
     </aside>
+  );
+}
+
+function PrList({ prs, selectedId, now, onSelect }: { prs: PrListItem[]; selectedId: number | null; now: number; onSelect: (id: number) => void }) {
+  if (prs.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-px">
+      {prs.map((p) => (
+        <li key={p.id}>
+          <PrRow pr={p} selected={p.id === selectedId} now={now} onClick={() => onSelect(p.id)} />
+        </li>
+      ))}
+    </ul>
   );
 }
 

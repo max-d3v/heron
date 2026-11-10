@@ -41,11 +41,12 @@ export function App() {
     void qc.invalidateQueries({ queryKey: orpc.doctor.key() });
   }, [pauseReasons, qc]);
 
-  // Keep the selection on a PR the sidebar lists; with none listed, select nothing.
+  // Keep the selection on a PR the sidebar lists; with none listed, select nothing. The fallback
+  // prefers an open PR, since closed and merged ones sit in the sidebar's collapsed section.
   useEffect(() => {
     if (!list) return;
     if (selected !== null && listed.some((p) => p.id === selected)) return;
-    setSelected(listed[0]?.id ?? null);
+    setSelected((listed.find((p) => p.state === "open") ?? listed[0])?.id ?? null);
   }, [list, listed, selected]);
 
   // A newly arrived PR takes the selection, but only from one that's settled (closed, merged, or
