@@ -1,7 +1,7 @@
 import type { AgentStepEvent, FeedbackGroupDto, FeedbackPanel, IterationDetail, IterationSummary, PrDetail } from "@heron/rpc";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, ChevronRight, Clock, ExternalLink, FolderGit2, GitCommitHorizontal, MessagesSquare, Minus, Pause, Play, RotateCw, Square, TriangleAlert, Undo2, Upload } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { cn } from "../../lib/cn";
 import { ago, compactNumber, duration, plural, relativeTime, shortSha } from "../../lib/format";
 import { useNow, useStream } from "../../lib/hooks";
@@ -44,12 +44,11 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
   const p = panel.data;
   const open = pr.state === "open";
   const paused = p.pausedAt !== null;
-  // One Pause/Resume per tab (§15.10), in the action row of the iteration shown, else the Feedback header, else the empty state.
-  const pauseButton =
+  // One Pause/Resume per tab (§15.10), always at the right of the tab's top row, so it never moves.
+  const toggleButton =
     open && p.eligible ? (
       <PauseButton
         paused={paused}
-        enabled={p.enabled}
         busy={pause.isPending || resume.isPending}
         onClick={() => (paused ? resume.mutate({ prId: pr.id }) : pause.mutate({ prId: pr.id }))}
       />
@@ -60,7 +59,7 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
     if (!open && iteration) {
       return (
         <div className="mx-auto flex max-w-[900px] flex-col gap-5 px-5 py-4">
-          <IterationRun key={iteration.id} pr={pr} summary={iteration} on={p.enabled} paused={paused} pauseButton={null} />
+          <IterationRun key={iteration.id} pr={pr} summary={iteration} on={p.enabled} paused={paused} />
         </div>
       );
     }
@@ -82,7 +81,7 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
           Turn them on in Settings → Repos.
         </Empty>
         {/* Resume stays reachable, so a pause never outlives the switch unseen. */}
-        {paused && <div className="flex justify-center">{pauseButton}</div>}
+        {paused && <div className="flex justify-center">{toggleButton}</div>}
       </div>
     );
   }
@@ -93,9 +92,21 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
           Iterations are off for this repo, so nothing new starts. Turn them on in Settings → Repos.
         </div>
       )}
-      {paused && (
-        <div className="rounded-[10px] bg-[color-mix(in_srgb,var(--orange)_10%,transparent)] px-4 py-2.5 text-[12.5px]">
-          Iterations on this PR were paused {ago(p.pausedAt, now)}. Comments are still triaged, and wait until you resume.
+      {(paused || p.enabled) && (
+        <div
+          className={cn(
+            "flex items-center gap-3 rounded-[10px] px-4 py-2 text-[12.5px]",
+            paused ? "bg-[color-mix(in_srgb,var(--orange)_10%,transparent)]" : "bg-content-2 text-fg-2 shadow-[0_0_0_0.5px_var(--line)]",
+          )}
+        >
+          <div className="min-w-0 flex-1">
+            {paused
+              ? `Iterations on this PR were paused ${ago(p.pausedAt, now)}. Comments are still triaged, and wait until you resume.`
+              : p.autoStart && !p.loopCapped
+                ? "Iterations start on their own on this PR."
+                : "Iterations on this PR wait for Iterate."}
+          </div>
+          <div className="shrink-0">{toggleButton}</div>
         </div>
       )}
       {pauseError && <ErrorNote>{errorText(pauseError)}</ErrorNote>}
@@ -104,12 +115,12 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
           Heron pushed {plural(p.pushStreak, "time")} in a row, so this PR waits for Iterate until someone else pushes.
         </div>
       )}
-      {showFeedback && <FeedbackSection pr={pr} panel={p} readyId={ready?.id ?? null} pauseButton={iteration ? null : pauseButton} />}
+      {showFeedback && <FeedbackSection pr={pr} panel={p} readyId={ready?.id ?? null} />}
       {iteration ? (
-        <IterationRun key={iteration.id} pr={pr} summary={iteration} on={p.enabled} paused={paused} pauseButton={pauseButton} />
+        <IterationRun key={iteration.id} pr={pr} summary={iteration} on={p.enabled} paused={paused} />
       ) : (
         !showFeedback && (
-          <div className="flex flex-col items-center pt-12">
+          <div className="pt-12">
             <Empty icon={<MessagesSquare className="size-7" />} title="No feedback to address">
               {COMMENTS_EMPTY[p.comments]}
               {p.dryRuns ? " or a dry-run review finds something" : ""},{" "}
@@ -117,7 +128,6 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
                 ? "an agent addresses the comments and Heron commits the changes."
                 : "Heron triages the comments and waits for you to click Iterate."}
             </Empty>
-            {pauseButton}
           </div>
         )
       )}
@@ -125,19 +135,17 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
   );
 }
 
-/** Pause or resume iterations on this PR (§15.10). Resume works even while iterations are off for the repo. */
-function PauseButton({ paused, enabled, busy, onClick }: { paused: boolean; enabled: boolean; busy: boolean; onClick: () => void }) {
-  const tip = paused
-    ? "Let Heron start iterations on this PR again"
-    : enabled
-      ? "Start no new iterations on this PR until you resume"
-      : "Iterations are off for this repo";
+/**
+ * Pause or resume iterations on this PR (§15.10). Only rendered while paused or while iterations are on for the repo,
+ * so Pause is never shown when it would do nothing, and Resume works even while iterations are off.
+ */
+function PauseButton({ paused, busy, onClick }: { paused: boolean; busy: boolean; onClick: () => void }) {
+  const tip = paused ? "Let Heron start iterations on this PR again" : "Start no new iterations on this PR until you resume";
   return (
     <ButtonTip content={tip}>
       <Button
         size="sm"
         icon={paused ? <Play className="size-3" /> : <Pause className="size-3" />}
-        disabled={!paused && !enabled}
         busy={busy}
         onClick={onClick}
       >
@@ -149,7 +157,7 @@ function PauseButton({ paused, enabled, busy, onClick }: { paused: boolean; enab
 
 // ── feedback ─────────────────────────────────────────────────────────────────
 
-function FeedbackSection({ pr, panel, readyId, pauseButton }: { pr: PrDetail; panel: FeedbackPanel; readyId: number | null; pauseButton: ReactNode }) {
+function FeedbackSection({ pr, panel, readyId }: { pr: PrDetail; panel: FeedbackPanel; readyId: number | null }) {
   const now = useNow(5_000);
   const iterate = useMutation(orpc.iterations.iterate.mutationOptions());
   // The same Cancel as on a queued or running iteration. The section lists every open batch's comments, so it stops them all.
@@ -174,7 +182,6 @@ function FeedbackSection({ pr, panel, readyId, pauseButton }: { pr: PrDetail; pa
         {batch.state === "triaging" && <Spinner />}
         <span className="min-w-0 truncate text-[12px] text-fg-2">{status}</span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {pauseButton}
           <Button size="sm" icon={<Square className="size-3" />} busy={cancel.isPending} onClick={() => cancel.mutate(panel.batches.map((b) => b.id))}>
             Cancel
           </Button>
@@ -320,18 +327,16 @@ interface RunProps {
   on: boolean;
   /** Iterations are paused on the PR: Re-run waits for Resume. */
   paused: boolean;
-  /** Pause/Resume, leftmost in the run's action row. */
-  pauseButton: ReactNode;
 }
 
 function IterationRun(props: RunProps) {
-  const { summary, pauseButton } = props;
-  if (isInFlightIteration(summary)) return <LiveIteration summary={summary} pauseButton={pauseButton} />;
-  if (summary.state === "queued" || summary.state === "held") return <PendingIteration summary={summary} pauseButton={pauseButton} />;
+  const { summary } = props;
+  if (isInFlightIteration(summary)) return <LiveIteration summary={summary} />;
+  if (summary.state === "queued" || summary.state === "held") return <PendingIteration summary={summary} />;
   return <FinishedIteration {...props} />;
 }
 
-function PendingIteration({ summary, pauseButton }: { summary: IterationSummary; pauseButton: ReactNode }) {
+function PendingIteration({ summary }: { summary: IterationSummary }) {
   const now = useNow(5_000);
   const cancel = useMutation(orpc.iterations.cancel.mutationOptions());
   const when = summary.runAfter && summary.runAfter > now ? relativeTime(summary.runAfter, now) : null;
@@ -348,7 +353,6 @@ function PendingIteration({ summary, pauseButton }: { summary: IterationSummary;
         {cancel.error && <div className="mt-1"><ErrorNote>{errorText(cancel.error)}</ErrorNote></div>}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {pauseButton}
         <Button size="sm" icon={<Square className="size-3" />} busy={cancel.isPending} onClick={() => cancel.mutate({ id: summary.id })}>
           Cancel
         </Button>
@@ -357,7 +361,7 @@ function PendingIteration({ summary, pauseButton }: { summary: IterationSummary;
   );
 }
 
-function LiveIteration({ summary, pauseButton }: { summary: IterationSummary; pauseButton: ReactNode }) {
+function LiveIteration({ summary }: { summary: IterationSummary }) {
   const now = useNow(1_000);
   const cancel = useMutation(orpc.iterations.cancel.mutationOptions());
   const { items: steps } = useStream<AgentStepEvent>(`iteration-steps:${summary.id}`, (signal) =>
@@ -376,7 +380,6 @@ function LiveIteration({ summary, pauseButton }: { summary: IterationSummary; pa
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <span className="font-mono text-[11.5px] tabular-nums text-fg-2">{summary.startedAt ? duration(now - summary.startedAt) : ""}</span>
-          {pauseButton}
           {summary.state !== "pushing" && summary.state !== "replying" && (
             <Button size="sm" icon={<Square className="size-3" />} busy={cancel.isPending} onClick={() => cancel.mutate({ id: summary.id })}>
               Cancel
@@ -405,7 +408,7 @@ const FINISHED_NOTE: Partial<Record<IterationSummary["state"], string>> = {
   uncommitted: "Uncommitted. The changes are staged in your local checkout for you to finish; its comments count as handled.",
 };
 
-function FinishedIteration({ pr, summary, on, paused, pauseButton }: RunProps) {
+function FinishedIteration({ pr, summary, on, paused }: RunProps) {
   const detail = useQuery(orpc.iterations.get.queryOptions({ input: { id: summary.id } }));
   const diff = useQuery({ ...orpc.iterations.diff.queryOptions({ input: { id: summary.id } }), enabled: summary.commitSha !== null });
   const steps = useQuery(orpc.iterations.steps.queryOptions({ input: { id: summary.id } }));
@@ -435,7 +438,6 @@ function FinishedIteration({ pr, summary, on, paused, pauseButton }: RunProps) {
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <IterationMeta it={it} />
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {pauseButton}
           {canOpen && (
             <ButtonTip
               content={
