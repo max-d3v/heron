@@ -6,10 +6,10 @@ import { cn } from "../lib/cn";
 import { ago } from "../lib/format";
 import { isWindows, labels } from "../lib/platform";
 import { errorText, orpc } from "../lib/rpc";
-import { REPO_FIELD_ID, type SettingsTarget } from "../lib/settings-nav";
+import { REPO_FIELD_ID, type RepoField } from "../lib/settings-nav";
 import { Button, Checkbox, Confirm, Dialog, Empty, ErrorNote, Field, Segmented, Select, Spinner, Switch, TextField } from "../components/ui";
 
-export function ReposPane({ initialRepoId, focusField }: { initialRepoId?: number; focusField?: SettingsTarget["field"] }) {
+export function ReposPane({ initialRepoId, focusField }: { initialRepoId?: number; focusField?: RepoField }) {
   const qc = useQueryClient();
   const repos = useQuery(orpc.repos.list.queryOptions());
   const [selected, setSelected] = useState<number | null>(initialRepoId ?? null);

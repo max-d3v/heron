@@ -473,7 +473,7 @@ function FinishedIteration({ pr, summary, on, paused, pauseButton }: RunProps) {
                   </Button>
                 </ButtonTip>
               )}
-              {manualPush && (
+              {manualPush && on && (
                 <ButtonTip content="Open this repo's settings to push results without waiting for you">
                   <Button
                     size="sm"

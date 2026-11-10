@@ -96,7 +96,7 @@ export function App() {
       try {
         for await (const e of await client.app.events(undefined, { signal: ac.signal })) {
           if (e.kind === "openPr") {
-            setSettingsTab(null);
+            closeSettings();
             setSelected(e.prId);
             setRequestedTab(e.tab ? { tab: e.tab, at: Date.now() } : null);
           } else if (e.kind === "openSettings") {
@@ -110,7 +110,7 @@ export function App() {
       }
     })();
     return () => ac.abort();
-  }, [qc]);
+  }, [qc, closeSettings]);
 
   if (!doctor.data) {
     return (
