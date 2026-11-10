@@ -1,5 +1,5 @@
 import { Check, ChevronDown, LoaderCircle, X } from "lucide-react";
-import { AlertDialog, Checkbox as RCheckbox, Dialog as RDialog, Select as RSelect, Switch as RSwitch, Tooltip as RTooltip } from "radix-ui";
+import { AlertDialog, Checkbox as RCheckbox, Dialog as RDialog, DropdownMenu as RMenu, Select as RSelect, Switch as RSwitch, Tooltip as RTooltip } from "radix-ui";
 import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { cn } from "../../lib/cn";
 
@@ -31,6 +31,46 @@ export const Button = forwardRef<
     </button>
   );
 });
+
+/** A button that opens a menu of actions, for a few related actions that would otherwise each take a button. */
+export function MenuButton({
+  label,
+  items,
+  variant = "default",
+  icon,
+  busy,
+}: {
+  label: string;
+  items: Array<{ label: string; icon?: ReactNode; onSelect: () => void }>;
+  variant?: ButtonVariant;
+  icon?: ReactNode;
+  busy?: boolean;
+}) {
+  return (
+    <RMenu.Root>
+      <RMenu.Trigger asChild>
+        <Button variant={variant} icon={icon} busy={busy}>
+          {label}
+          <ChevronDown className="-mr-0.5 size-3.5 opacity-80" />
+        </Button>
+      </RMenu.Trigger>
+      <RMenu.Portal>
+        <RMenu.Content align="end" sideOffset={4} className="z-50 min-w-[180px] rounded-[8px] bg-content-2/95 p-1 shadow-pop outline-none backdrop-blur-xl">
+          {items.map((item) => (
+            <RMenu.Item
+              key={item.label}
+              onSelect={item.onSelect}
+              className="flex h-[26px] items-center gap-2 rounded-[5px] px-2 text-[13px] text-fg outline-none data-[highlighted]:bg-accent data-[highlighted]:text-white"
+            >
+              {item.icon}
+              {item.label}
+            </RMenu.Item>
+          ))}
+        </RMenu.Content>
+      </RMenu.Portal>
+    </RMenu.Root>
+  );
+}
 
 export function IconButton({
   label,

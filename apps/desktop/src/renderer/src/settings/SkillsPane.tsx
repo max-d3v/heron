@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { cn } from "../lib/cn";
 import { labels } from "../lib/platform";
 import { errorText, orpc } from "../lib/rpc";
-import { Badge, Button, Confirm, Dialog, Empty, ErrorNote, Spinner, TextArea } from "../components/ui";
+import { HeaderActions } from "./HeaderActions";
+import { Badge, Button, Confirm, Dialog, Empty, ErrorNote, MenuButton, Spinner, TextArea } from "../components/ui";
 
 export function SkillsPane() {
   const qc = useQueryClient();
@@ -26,6 +27,11 @@ export function SkillsPane() {
   return (
     <div className="flex h-full">
       <div className="flex w-[240px] shrink-0 flex-col border-r border-line">
+        {importDialog.error && (
+          <div className="border-b border-line p-2">
+            <ErrorNote>{errorText(importDialog.error)}</ErrorNote>
+          </div>
+        )}
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {skills.data?.length === 0 && <div className="px-2 py-6 text-center text-[12px] text-fg-3">No skills yet.</div>}
           {skills.data?.map((s) => (
@@ -43,16 +49,19 @@ export function SkillsPane() {
             </button>
           ))}
         </div>
-        <div className="flex flex-col gap-1.5 border-t border-line p-2">
-          {importDialog.error && <ErrorNote>{errorText(importDialog.error)}</ErrorNote>}
-          <Button icon={<Plus className="size-3.5" />} busy={importDialog.isPending} onClick={() => importDialog.mutate({})}>
-            Import folder…
-          </Button>
-          <Button icon={<Link className="size-3.5" />} onClick={() => setLinking(true)}>
-            Link from ~/.claude/skills…
-          </Button>
-        </div>
       </div>
+      <HeaderActions>
+        <MenuButton
+          variant="primary"
+          icon={<Plus className="size-3.5" />}
+          label="Add skill"
+          busy={importDialog.isPending}
+          items={[
+            { label: "Import folder…", icon: <FolderOpen className="size-3.5" />, onSelect: () => importDialog.mutate({}) },
+            { label: "Link from ~/.claude/skills…", icon: <Link className="size-3.5" />, onSelect: () => setLinking(true) },
+          ]}
+        />
+      </HeaderActions>
       <div className="min-w-0 flex-1 overflow-y-auto">
         {current ? (
           <SkillEditor key={current.id} skill={current} onRemoved={() => setSelected(null)} />
