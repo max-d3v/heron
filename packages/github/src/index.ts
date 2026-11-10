@@ -256,6 +256,15 @@ export class GitHubClient {
     return { login: data.login, avatarUrl: data.avatar_url ?? null };
   }
 
+  /**
+   * The viewer as a commit's author: their GitHub name (the login when they set none) and the
+   * noreply address GitHub credits to their account. For a computer where git has no identity (§15.6).
+   */
+  async viewerIdentity(): Promise<{ name: string; email: string }> {
+    const { data } = await this.call("Get user", (o) => o.rest.users.getAuthenticated());
+    return { name: data.name || data.login, email: `${data.id}+${data.login}@users.noreply.github.com` };
+  }
+
   async viewerLoginCached(): Promise<string> {
     if (this.viewerLogin) return this.viewerLogin;
     return (await this.viewer()).login;
