@@ -6,14 +6,22 @@ import { cn } from "../lib/cn";
 import { ago } from "../lib/format";
 import { isWindows, labels } from "../lib/platform";
 import { errorText, orpc } from "../lib/rpc";
+import { REPO_FIELD_ID, type SettingsTarget } from "../lib/settings-nav";
 import { Button, Checkbox, Confirm, Dialog, Empty, ErrorNote, Field, Segmented, Select, Spinner, Switch, TextField } from "../components/ui";
 
-export function ReposPane() {
+export function ReposPane({ initialRepoId, focusField }: { initialRepoId?: number; focusField?: SettingsTarget["field"] }) {
   const qc = useQueryClient();
   const repos = useQuery(orpc.repos.list.queryOptions());
-  const [selected, setSelected] = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | null>(initialRepoId ?? null);
   const [adding, setAdding] = useState(false);
   const current = repos.data?.find((r) => r.id === selected) ?? repos.data?.[0] ?? null;
+
+  // Opened on a field (a link elsewhere in the app): bring it into view once its repo is on screen.
+  const loaded = repos.data !== undefined;
+  useEffect(() => {
+    if (!focusField || !loaded) return;
+    document.getElementById(REPO_FIELD_ID[focusField])?.scrollIntoView({ block: "center" });
+  }, [focusField, loaded]);
 
   return (
     <div className="flex h-full">
@@ -313,7 +321,7 @@ function IterationFields({
       </Field>
 
       <Field label="Push" hint={repo.iterationAutoPush ? undefined : "Results wait for Push."}>
-        <label className="flex items-center gap-2 text-[13px]">
+        <label id={REPO_FIELD_ID.iterationAutoPush} className="flex items-center gap-2 text-[13px]">
           <Checkbox checked={repo.iterationAutoPush} onChange={(v) => onPatch({ iterationAutoPush: v })} />
           Push automatically
         </label>

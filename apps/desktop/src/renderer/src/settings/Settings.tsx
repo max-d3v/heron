@@ -1,6 +1,7 @@
 import { FolderGit2, Settings as Gear, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "../lib/cn";
+import type { SettingsTarget } from "../lib/settings-nav";
 import { GeneralPane } from "./GeneralPane";
 import { ProfilesPane } from "./ProfilesPane";
 import { ReposPane } from "./ReposPane";
@@ -16,7 +17,18 @@ const TABS: Array<{ id: SettingsTab; label: string; icon: typeof Gear }> = [
 ];
 
 /** Settings, laid out like a macOS settings window (toolbar tabs) over the main window. */
-export function Settings({ tab, onTab, onClose }: { tab: SettingsTab; onTab: (t: SettingsTab) => void; onClose: () => void }) {
+export function Settings({
+  tab,
+  target,
+  onTab,
+  onClose,
+}: {
+  tab: SettingsTab;
+  /** The repo (and field) the Repos tab opens on. */
+  target?: SettingsTarget | null;
+  onTab: (t: SettingsTab) => void;
+  onClose: () => void;
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !document.querySelector("[role=dialog],[role=alertdialog],[data-radix-popper-content-wrapper]")) onClose();
@@ -52,7 +64,7 @@ export function Settings({ tab, onTab, onClose }: { tab: SettingsTab; onTab: (t:
         </button>
       </div>
       <div className="min-h-0 flex-1">
-        {tab === "repos" && <ReposPane />}
+        {tab === "repos" && <ReposPane initialRepoId={target?.repoId} focusField={target?.field} />}
         {tab === "profiles" && <ProfilesPane />}
         {tab === "skills" && <SkillsPane />}
         {tab === "general" && (

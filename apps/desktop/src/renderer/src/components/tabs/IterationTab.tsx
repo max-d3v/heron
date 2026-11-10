@@ -1,12 +1,13 @@
 import type { AgentStepEvent, FeedbackGroupDto, FeedbackPanel, IterationDetail, IterationSummary, PrDetail } from "@heron/rpc";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, ChevronRight, Clock, ExternalLink, FolderGit2, GitCommitHorizontal, MessagesSquare, Minus, Pause, Play, RotateCw, Square, TriangleAlert, Undo2, Upload } from "lucide-react";
+import { Check, ChevronRight, Clock, ExternalLink, FolderGit2, GitCommitHorizontal, MessagesSquare, Minus, Pause, Play, RotateCw, Settings, Square, TriangleAlert, Undo2, Upload } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { ago, compactNumber, duration, plural, relativeTime, shortSha } from "../../lib/format";
 import { useNow, useStream } from "../../lib/hooks";
 import { ITERATION_LABEL, ITERATION_TONE, isInFlightIteration } from "../../lib/iterations";
 import { client, errorText, orpc } from "../../lib/rpc";
+import { useOpenSettings } from "../../lib/settings-nav";
 import { DiffView } from "../DiffView";
 import { Markdown } from "../Markdown";
 import { ButtonTip } from "../PrDetail";
@@ -415,6 +416,8 @@ function FinishedIteration({ pr, summary, on, paused, pauseButton }: RunProps) {
   const rerun = useMutation(orpc.iterations.rerun.mutationOptions());
   const rerunInWorktree = useMutation(orpc.iterations.rerun.mutationOptions());
   const openInClaude = useMutation(orpc.iterations.openInClaude.mutationOptions());
+  const repos = useQuery(orpc.repos.list.queryOptions());
+  const openSettings = useOpenSettings();
   const [showSteps, setShowSteps] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
@@ -429,6 +432,8 @@ function FinishedIteration({ pr, summary, on, paused, pauseButton }: RunProps) {
   // A worktree iteration's folder goes when the PR closes, and the session can't continue without it.
   const canOpen = it.sessionId !== null && (it.cwdKind === "local" || pr.state === "open");
   const rerunTip = !on ? "Iterations are off for this repo" : paused ? PAUSED_TIP : null;
+  // The repo pushes by hand: offer the setting that makes the next results push themselves.
+  const manualPush = repos.data?.find((r) => r.id === pr.repoId)?.iterationAutoPush === false;
 
   return (
     <section className="flex flex-col gap-4">
@@ -465,6 +470,17 @@ function FinishedIteration({ pr, summary, on, paused, pauseButton }: RunProps) {
                 <ButtonTip content="Take the commit off your local checkout and keep its changes staged (git reset --soft)">
                   <Button size="sm" icon={<Undo2 className="size-3" />} busy={uncommit.isPending} onClick={() => uncommit.mutate({ id: it.id })}>
                     Uncommit
+                  </Button>
+                </ButtonTip>
+              )}
+              {manualPush && (
+                <ButtonTip content="Open this repo's settings to push results without waiting for you">
+                  <Button
+                    size="sm"
+                    icon={<Settings className="size-3" />}
+                    onClick={() => openSettings({ tab: "repos", repoId: pr.repoId, field: "iterationAutoPush" })}
+                  >
+                    Enable auto-push
                   </Button>
                 </ButtonTip>
               )}
