@@ -446,17 +446,29 @@ export class IterationPipeline {
   // ── committing ────────────────────────────────────────────────────────────
 
   private async commit(it: Iteration, snap: IterationSnapshot, pr: Pr, repo: Repo): Promise<{ patch: IterationPatch; to: IterationState; message?: string }> {
-    const { git, paths } = this.d;
+    const { git, github, paths, store } = this.d;
     const output = it.output;
     if (!output || !it.headSha) throw new PermanentError("Nothing to commit (the agent's output is missing)");
     const cwd = this.cwd(it, snap, pr, repo);
     const trailer = iterationTrailer(it.id);
+    // Git has no name and email where Heron commits: the commit is by the GitHub account (§15.6).
+    const asGitHubAccount = async () => {
+      const identity = await github.viewerIdentity();
+      store.activity({
+        prId: it.prId,
+        reviewId: null,
+        iterationId: it.id,
+        kind: "iteration.state",
+        message: `git has no user.name and user.email here, so the commit is by your GitHub account (${identity.name} <${identity.email}>)`,
+      });
+      return identity;
+    };
 
     // A commit made before a crash is found again by its trailer.
     let sha = await git.headCommitWithTrailer(cwd, it.headSha, trailer);
     if (!sha) {
       try {
-        sha = await git.commitAll(cwd, it.headSha, { title: output.commitTitle.split("\n")[0]!.trim(), body: commitBody(it, output), trailer });
+        sha = await git.commitAll(cwd, it.headSha, { title: output.commitTitle.split("\n")[0]!.trim(), body: commitBody(it, output), trailer }, asGitHubAccount);
       } catch (err) {
         if (err instanceof GitError) throw new PermanentError(`Couldn't commit: ${err.message}`, { cause: err });
         throw err;
