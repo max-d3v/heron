@@ -54,11 +54,11 @@ export function App() {
 
   // When the focused PR closes or merges while you're on it, let it go: the fallback above then
   // picks an open PR or leaves the main screen empty. A closed PR you click into stays put.
-  const selectedState = useRef<{ id: number; state: string } | null>(null);
+  const selectedState = useRef<PrListItem | null>(null);
   useEffect(() => {
     const current = list?.find((p) => p.id === selected);
     const prev = selectedState.current;
-    selectedState.current = current ? { id: current.id, state: current.state } : null;
+    selectedState.current = current ?? null;
     if (!current || !prev || prev.id !== current.id) return;
     if (prev.state === "open" && current.state !== "open") {
       setSelected(null);
