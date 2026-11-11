@@ -78,7 +78,9 @@ export function IterationTab({ pr, iteration, picked = false }: { pr: PrDetail; 
 
   const ready = pr.iterations.find((i) => i.state === "ready") ?? null;
   const showFeedback = !picked && p.batches.length > 0;
-  const shown = showFeedback && iteration && isFinishedIteration(iteration) ? null : iteration;
+  // The open batch replaces only the finished iteration before it: a newer one (e.g. a re-run queued while the batch waits) stays.
+  const newestBatchId = showFeedback ? Math.max(...p.batches.map((b) => b.id)) : null;
+  const shown = newestBatchId !== null && iteration && isFinishedIteration(iteration) && iteration.id < newestBatchId ? null : iteration;
   if (!p.enabled && !showFeedback && !iteration) {
     return (
       <div className="pt-16">

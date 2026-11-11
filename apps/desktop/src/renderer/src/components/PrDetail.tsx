@@ -57,7 +57,8 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
     lastOpenIterationId.current = null;
   }, [prId]);
 
-  // A review that starts (Re-run, Review now, a push) takes over the Review tab from a run picked earlier.
+  // A review that starts from a push takes over the Review tab from a run picked earlier (Re-run and Review now
+  // clear the pick themselves, since Review now may reuse a debouncing run rather than start a newer one).
   // Only a newer id counts: when the newest active run ends while an older one is still active, the pick stays.
   const activeRunId = query.data?.runs.find(isActiveRun)?.id ?? null;
   useEffect(() => {
@@ -106,7 +107,7 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
 
   return (
     <div className="flex h-full flex-col">
-      <Header pr={pr} shown={shown} />
+      <Header pr={pr} shown={shown} onStarted={() => setPickedRunId(null)} />
       <div className="flex shrink-0 items-center justify-between border-b border-line px-5 pb-2.5">
         <Segmented<Tab>
           value={tab}
@@ -166,9 +167,10 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
   );
 }
 
-function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
-  const reviewNow = useMutation(orpc.reviews.reviewNow.mutationOptions());
-  const rerun = useMutation(orpc.reviews.rerun.mutationOptions());
+/** `onStarted`: Review now or Re-run went through, so the Review tab should show the review it started. */
+function Header({ pr, shown, onStarted }: { pr: PrDetailDto; shown: RunSummary | null; onStarted: () => void }) {
+  const reviewNow = useMutation(orpc.reviews.reviewNow.mutationOptions({ onSuccess: onStarted }));
+  const rerun = useMutation(orpc.reviews.rerun.mutationOptions({ onSuccess: onStarted }));
   const cancel = useMutation(orpc.reviews.cancel.mutationOptions());
   const openExternal = useMutation(orpc.app.openExternal.mutationOptions());
 
