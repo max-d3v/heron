@@ -5,7 +5,7 @@ import { useState } from "react";
 import { cn } from "../../lib/cn";
 import { ago, compactNumber, duration, plural, relativeTime, shortSha } from "../../lib/format";
 import { useNow, useStream } from "../../lib/hooks";
-import { ITERATION_LABEL, ITERATION_TONE, isInFlightIteration } from "../../lib/iterations";
+import { ITERATION_LABEL, ITERATION_TONE, isFinishedIteration, isInFlightIteration } from "../../lib/iterations";
 import { client, errorText, orpc } from "../../lib/rpc";
 import { useOpenSettings } from "../../lib/settings-nav";
 import { DiffView } from "../DiffView";
@@ -21,8 +21,11 @@ const COMMENTS_EMPTY: Record<FeedbackPanel["comments"], string> = {
   mine: "When you comment on this PR (Heron's reviews count as yours)",
 };
 
-/** The Iteration tab (§15.8): the open batch of feedback, then the latest iteration that ran the agent (or the one picked in Runs). */
-export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: IterationSummary | null }) {
+/**
+ * The Iteration tab (§15.8): the open batch of feedback, then the latest iteration that ran the agent (or the one picked in Runs).
+ * One iteration at a time: a picked one is shown without the open batch, and an open batch hides the finished iteration before it.
+ */
+export function IterationTab({ pr, iteration, picked = false }: { pr: PrDetail; iteration: IterationSummary | null; picked?: boolean }) {
   const panel = useQuery(orpc.iterations.feedback.queryOptions({ input: { prId: pr.id } }));
   const pause = useMutation(orpc.iterations.pause.mutationOptions());
   const resume = useMutation(orpc.iterations.resume.mutationOptions());
@@ -74,7 +77,10 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
   }
 
   const ready = pr.iterations.find((i) => i.state === "ready") ?? null;
-  const showFeedback = p.batches.length > 0;
+  const showFeedback = !picked && p.batches.length > 0;
+  // The open batch replaces only the finished iteration before it: a newer one (e.g. a re-run queued while the batch waits) stays.
+  const newestBatchId = showFeedback ? Math.max(...p.batches.map((b) => b.id)) : null;
+  const shown = newestBatchId !== null && iteration && isFinishedIteration(iteration) && iteration.id < newestBatchId ? null : iteration;
   if (!p.enabled && !showFeedback && !iteration) {
     return (
       <div className="pt-16">
@@ -117,8 +123,8 @@ export function IterationTab({ pr, iteration }: { pr: PrDetail; iteration: Itera
         </div>
       )}
       {showFeedback && <FeedbackSection pr={pr} panel={p} readyId={ready?.id ?? null} />}
-      {iteration ? (
-        <IterationRun key={iteration.id} pr={pr} summary={iteration} on={p.enabled} paused={paused} />
+      {shown ? (
+        <IterationRun key={shown.id} pr={pr} summary={shown} on={p.enabled} paused={paused} />
       ) : (
         !showFeedback && (
           <div className="pt-12">

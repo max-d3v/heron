@@ -35,8 +35,9 @@ const STATE_TEXT: Record<string, string> = {
   posting: "Posting to GitHub",
 };
 
-export function ReviewTab({ pr, run }: { pr: PrDetail; run: RunSummary | null }) {
-  const pending = pr.runs.find((r) => isActiveRun(r) && r.id !== run?.id) ?? null;
+/** `picked`: the user opened this run from the Runs tab, so it's shown alone, without other runs' progress above it. */
+export function ReviewTab({ pr, run, picked = false }: { pr: PrDetail; run: RunSummary | null; picked?: boolean }) {
+  const pending = picked ? null : (pr.runs.find((r) => isActiveRun(r) && r.id !== run?.id) ?? null);
   return (
     <div className="mx-auto flex max-w-[900px] flex-col gap-4 px-5 py-4">
       {pending && <PendingCard run={pending} />}

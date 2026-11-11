@@ -1,9 +1,9 @@
 import type { IterationSummary, PrDetail as PrDetailDto, RunSummary } from "@heron/rpc";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, ExternalLink, Play, RotateCw, Square } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { shortSha } from "../lib/format";
-import { defaultIteration } from "../lib/iterations";
+import { defaultIteration, isFinishedIteration } from "../lib/iterations";
 import { errorText, orpc } from "../lib/rpc";
 import { Avatar } from "./Avatar";
 import { PrIcon, prStatusLabel } from "./StatusDot";
@@ -41,6 +41,9 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
   const [transcriptFor, setTranscriptFor] = useState<TranscriptFor>(requestedTab?.tab === "iteration" ? "iteration" : "review");
   const [pickedRunId, setPickedRunId] = useState<number | null>(null);
   const [pickedIterationId, setPickedIterationId] = useState<number | null>(null);
+  // The newest active run / open iteration seen so far. Ids only grow, so a larger one is one that just started.
+  const lastActiveRunId = useRef<number | null>(null);
+  const lastOpenIterationId = useRef<number | null>(null);
 
   const setTab = (t: Tab) => {
     setTabState(t);
@@ -50,7 +53,27 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
   useEffect(() => {
     setPickedRunId(null);
     setPickedIterationId(null);
+    lastActiveRunId.current = null;
+    lastOpenIterationId.current = null;
   }, [prId]);
+
+  // A review that starts from a push takes over the Review tab from a run picked earlier (Re-run and Review now
+  // clear the pick themselves, since Review now may reuse a debouncing run rather than start a newer one).
+  // Only a newer id counts: when the newest active run ends while an older one is still active, the pick stays.
+  const activeRunId = query.data?.runs.find(isActiveRun)?.id ?? null;
+  useEffect(() => {
+    if (activeRunId === null || (lastActiveRunId.current !== null && activeRunId <= lastActiveRunId.current)) return;
+    lastActiveRunId.current = activeRunId;
+    setPickedRunId(null);
+  }, [activeRunId]);
+  // Likewise a new iteration (from the moment its feedback batch opens) takes over the Iteration tab;
+  // a batch that finishes (e.g. triaged to skipped) or is cancelled, uncovering an older unfinished one, doesn't.
+  const openIterationId = query.data?.iterations.find((i) => !isFinishedIteration(i))?.id ?? null;
+  useEffect(() => {
+    if (openIterationId === null || (lastOpenIterationId.current !== null && openIterationId <= lastOpenIterationId.current)) return;
+    lastOpenIterationId.current = openIterationId;
+    setPickedIterationId(null);
+  }, [openIterationId]);
 
   // A notification or the menu bar asked for a tab (e.g. Ready to push → Iteration).
   useEffect(() => {
@@ -78,11 +101,13 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
     (pickedIterationId !== null ? pr.iterations.find((i) => i.id === pickedIterationId) : null) ??
     defaultIteration(pr.iterations, pr.state === "open");
   const runCount = pr.runs.length + pr.iterations.filter((i) => i.startedAt !== null || i.state === "skipped").length;
-  const picked = tab === "iteration" ? pickedIterationId !== null && shownIteration : tab === "review" && pickedRunId !== null && shown;
+  // A pick counts only while it's still in the PR's runs; otherwise the tab falls back to the latest.
+  const runPicked = pickedRunId !== null && shown?.id === pickedRunId;
+  const iterationPicked = pickedIterationId !== null && shownIteration?.id === pickedIterationId;
 
   return (
     <div className="flex h-full flex-col">
-      <Header pr={pr} shown={shown} />
+      <Header pr={pr} shown={shown} onStarted={() => setPickedRunId(null)} />
       <div className="flex shrink-0 items-center justify-between border-b border-line px-5 pb-2.5">
         <Segmented<Tab>
           value={tab}
@@ -96,18 +121,20 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
             { value: "pr", label: "Pull Request" },
           ]}
         />
-        {picked && (
-          <button
-            className="text-[11.5px] text-accent hover:underline"
-            onClick={() => (tab === "iteration" ? setPickedIterationId(null) : setPickedRunId(null))}
-          >
-            {tab === "iteration" ? `Showing iteration ${shownIteration!.id}` : `Showing run of ${shortSha(shown!.headSha)}`} · show latest
+        {tab === "review" && runPicked && (
+          <button className="text-[11.5px] text-accent hover:underline" onClick={() => setPickedRunId(null)}>
+            Showing run of {shortSha(shown!.headSha)} · show latest
+          </button>
+        )}
+        {tab === "iteration" && iterationPicked && (
+          <button className="text-[11.5px] text-accent hover:underline" onClick={() => setPickedIterationId(null)}>
+            Showing iteration {shownIteration!.id} · show latest
           </button>
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "review" && <ReviewTab pr={pr} run={shown} />}
-        {tab === "iteration" && <IterationTab pr={pr} iteration={shownIteration} />}
+        {tab === "review" && <ReviewTab pr={pr} run={shown} picked={runPicked} />}
+        {tab === "iteration" && <IterationTab pr={pr} iteration={shownIteration} picked={iterationPicked} />}
         {tab === "activity" && <ActivityTab prId={pr.id} />}
         {tab === "runs" && (
           <RunsTab
@@ -140,9 +167,10 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
   );
 }
 
-function Header({ pr, shown }: { pr: PrDetailDto; shown: RunSummary | null }) {
-  const reviewNow = useMutation(orpc.reviews.reviewNow.mutationOptions());
-  const rerun = useMutation(orpc.reviews.rerun.mutationOptions());
+/** `onStarted`: Review now or Re-run went through, so the Review tab should show the review it started. */
+function Header({ pr, shown, onStarted }: { pr: PrDetailDto; shown: RunSummary | null; onStarted: () => void }) {
+  const reviewNow = useMutation(orpc.reviews.reviewNow.mutationOptions({ onSuccess: onStarted }));
+  const rerun = useMutation(orpc.reviews.rerun.mutationOptions({ onSuccess: onStarted }));
   const cancel = useMutation(orpc.reviews.cancel.mutationOptions());
   const openExternal = useMutation(orpc.app.openExternal.mutationOptions());
 
