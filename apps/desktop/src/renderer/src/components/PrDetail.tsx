@@ -3,7 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, ExternalLink, Play, RotateCw, Square } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { shortSha } from "../lib/format";
-import { defaultIteration } from "../lib/iterations";
+import { defaultIteration, isFinishedIteration } from "../lib/iterations";
 import { errorText, orpc } from "../lib/rpc";
 import { Avatar } from "./Avatar";
 import { PrIcon, prStatusLabel } from "./StatusDot";
@@ -51,6 +51,17 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
     setPickedRunId(null);
     setPickedIterationId(null);
   }, [prId]);
+
+  // A review that starts (Re-run, Review now, a push) takes over the Review tab from a run picked earlier.
+  const activeRunId = query.data?.runs.find(isActiveRun)?.id ?? null;
+  useEffect(() => {
+    if (activeRunId !== null) setPickedRunId(null);
+  }, [activeRunId]);
+  // Likewise a new iteration (from the moment its feedback batch opens) takes over the Iteration tab.
+  const openIterationId = query.data?.iterations.find((i) => !isFinishedIteration(i))?.id ?? null;
+  useEffect(() => {
+    if (openIterationId !== null) setPickedIterationId(null);
+  }, [openIterationId]);
 
   // A notification or the menu bar asked for a tab (e.g. Ready to push → Iteration).
   useEffect(() => {
@@ -106,8 +117,10 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "review" && <ReviewTab pr={pr} run={shown} />}
-        {tab === "iteration" && <IterationTab pr={pr} iteration={shownIteration} />}
+        {tab === "review" && <ReviewTab pr={pr} run={shown} picked={pickedRunId !== null && shown?.id === pickedRunId} />}
+        {tab === "iteration" && (
+          <IterationTab pr={pr} iteration={shownIteration} picked={pickedIterationId !== null && shownIteration?.id === pickedIterationId} />
+        )}
         {tab === "activity" && <ActivityTab prId={pr.id} />}
         {tab === "runs" && (
           <RunsTab
