@@ -252,7 +252,8 @@ export function createRouter(s: Services) {
         s.store.prsChanged();
         await rm(join(s.paths.worktrees, repo.owner, repo.name), { recursive: true, force: true });
         await rm(join(s.paths.worktrees, "iterations", repo.owner, repo.name), { recursive: true, force: true });
-        await rm(s.paths.cloneDir(repo.owner, repo.name), { recursive: true, force: true });
+        await rm(s.paths.repoDir(repo.owner, repo.name), { recursive: true, force: true });
+        await rm(s.paths.movingCloneDir(repo.owner, repo.name), { recursive: true, force: true });
       }),
       pickCheckout: os.repos.pickCheckout.handler(async ({ input }) => {
         const repo = requireRepo(input.id);
@@ -492,6 +493,9 @@ export function createRouter(s: Services) {
           if (!existsSync(s.paths.iterationWorktreeDir(repo.owner, repo.name, pr.number, it.id))) {
             throw new ORPCError("NOT_FOUND", { message: "This iteration's worktree was removed, so its session has no folder to continue in." });
           }
+          // A worktree from before the clone moved into `.git` points at its old place until repaired.
+          const clone = s.paths.cloneDir(repo.owner, repo.name);
+          if (existsSync(join(clone, "HEAD"))) await s.git.repairWorktrees(clone);
         }
         try {
           await s.openExternal(`claude://resume?session=${encodeURIComponent(it.sessionId)}`);

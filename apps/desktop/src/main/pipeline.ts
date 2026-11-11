@@ -23,7 +23,7 @@ import type { GitClient } from "@heron/git";
 import type { GitHubClient } from "@heron/github";
 import { runReview, type HarnessEntry } from "@heron/harness";
 import { dryRunHistory } from "./dry-run-history.ts";
-import type { Paths } from "./paths.ts";
+import { migrateClone, type Paths } from "./paths.ts";
 import { skillCommand, type SkillService } from "./skills.ts";
 import type { Store } from "./store.ts";
 
@@ -169,6 +169,7 @@ export class Pipeline {
 
     const clone = paths.cloneDir(owner, name);
     const worktree = paths.worktreeDir(owner, name, pr.number);
+    migrateClone(paths, owner, name);
     await git.ensureClone(clone, owner, name);
     await git.fetchPr(clone, pr.number, detail.baseRef);
     if (!(await git.ensureCommit(clone, review.headSha))) {

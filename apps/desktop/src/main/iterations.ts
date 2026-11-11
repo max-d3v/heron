@@ -1,4 +1,5 @@
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   ITERATION_STEP_STATES,
   LimitError,
@@ -440,6 +441,17 @@ export class IterationScheduler {
 
   // ── PR changes (from the poller) ──────────────────────────────────────────
 
+  /** A closed PR's iteration worktrees, and the folder they went in before they moved to the repo's `.claude/worktrees`. */
+  private async removeIterationWorktrees(repo: Repo, number: number): Promise<void> {
+    const { git, paths } = this.d;
+    const clone = paths.cloneDir(repo.owner, repo.name);
+    const dir = paths.iterationWorktreesDir(repo.owner, repo.name);
+    const prefix = paths.prIterationWorktreePrefix(number);
+    const names = await readdir(dir).catch((): string[] => []);
+    for (const name of names.filter((n) => n.startsWith(prefix))) await git.removeWorktree(clone, join(dir, name));
+    await git.removeWorktree(clone, paths.legacyPrIterationWorktreesDir(repo.owner, repo.name, number));
+  }
+
   handleChanges(repo: Repo, changes: PrChange[]): void {
     const { db } = this.d;
     for (const change of changes) {
@@ -448,9 +460,7 @@ export class IterationScheduler {
       if (!pr) continue;
       if (change.type === "PrClosed") {
         for (const it of db.listIterationsForPr(pr.id)) if (isIterationActive(it.state)) this.stop(it, `PR ${pr.state}`);
-        void this.d.git
-          .removeWorktree(this.d.paths.cloneDir(repo.owner, repo.name), this.d.paths.prIterationWorktreesDir(repo.owner, repo.name, pr.number))
-          .catch(() => undefined);
+        void this.removeIterationWorktrees(repo, pr.number).catch(() => undefined);
       } else if (change.headChanged) {
         this.onHeadChanged(pr);
       }

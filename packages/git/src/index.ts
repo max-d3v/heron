@@ -137,6 +137,16 @@ export class GitClient {
       // Two runs on one repo can both get here; git's config lock lets one write, and both write the same.
       await this.run(["config", key, value], { cwd: cloneDir }).catch(() => undefined);
     }
+    await this.repairWorktrees(cloneDir);
+  }
+
+  /**
+   * Re-point the clone's linked worktrees at it, after it moved (as clones from before Heron's `.git` layout did).
+   * Does nothing for ones that already point right or whose folder is gone; a worktree it can't fix is
+   * left as is (a run recreates its own worktree), so this never fails.
+   */
+  async repairWorktrees(cloneDir: string): Promise<void> {
+    await this.run(["worktree", "repair"], { cwd: cloneDir }).catch(() => undefined);
   }
 
   /** Fetch the PR head and its base branch into heron-owned refs. */
