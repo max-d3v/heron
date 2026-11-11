@@ -32,7 +32,7 @@ import { GitError, type GitClient } from "@heron/git";
 import type { GitHubClient, ReviewThreads } from "@heron/github";
 import { runIteration, runSetupCommand, runTriage, type PrContext, type TriageItem } from "@heron/harness";
 import { ALL_RESOLVED, groupFeedback, inResolvedThreads, setAsideResolved, threadForPrompt, threadsFor } from "./feedback.ts";
-import type { Paths } from "./paths.ts";
+import { migrateClone, type Paths } from "./paths.ts";
 import { PrClosedError } from "./pipeline.ts";
 import type { Store } from "./store.ts";
 
@@ -240,6 +240,7 @@ export class IterationPipeline {
 
     // Heron's clone is needed in both modes: the commit is pushed from it.
     const clone = paths.cloneDir(owner, name);
+    migrateClone(paths, owner, name);
     await git.ensureClone(clone, owner, name);
     await git.fetchPr(clone, pr.number, detail.baseRef);
     if (!(await git.ensureCommit(clone, headSha))) throw new PermanentError(`Commit ${short(headSha)} is no longer on GitHub`);

@@ -1,5 +1,8 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** Suffix of the folder an old-layout clone sits in while it moves into its repo folder's `.git`. */
+const MOVING = ".heron-moving";
 
 /** Everything Heron stores lives under Application Support/Heron (%LOCALAPPDATA%\Heron on Windows, §17.7). */
 export function makePaths(root: string) {
@@ -22,6 +25,8 @@ export function makePaths(root: string) {
      */
     repoDir: (owner: string, name: string) => join(root, "repos", owner, name),
     cloneDir: (owner: string, name: string) => join(root, "repos", owner, name, ".git"),
+    /** Where a clone from before the `.git` layout waits while it moves (see `migrateClone`). */
+    movingCloneDir: (owner: string, name: string) => join(root, "repos", owner, `${name}${MOVING}`),
     worktreeDir: (owner: string, name: string, number: number) => join(root, "worktrees", owner, name, String(number)),
     transcript: (reviewId: number) => join(root, "transcripts", `${reviewId}.jsonl`),
     /** Copy of the diff a run reviewed, kept for validation and the UI after the worktree moves on. */
@@ -64,33 +69,36 @@ export function ensureLayout(paths: Paths, version: string): void {
   );
 }
 
-/**
- * Clones used to be bare repos at `repos/<owner>/<name>` itself; they now live in its `.git`. Moves each
- * old one's files in (HEAD last, so an interrupted move is picked up on the next launch), then points its
- * linked worktrees at the new place, as `git worktree repair` would. Refs (iteration results) are kept.
- */
+/** Moves every clone from before the `.git` layout (see `migrateClone`). A failure is retried before the repo's next run. */
 function migrateClones(paths: Paths): void {
   const list = (dir: string) => (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) : []);
   for (const owner of list(paths.repos)) {
-    for (const name of list(join(paths.repos, owner))) {
-      const repo = join(paths.repos, owner, name);
-      if (!existsSync(join(repo, "HEAD"))) continue;
+    const names = new Set(list(join(paths.repos, owner)).map((n) => (n.endsWith(MOVING) ? n.slice(0, -MOVING.length) : n)));
+    for (const name of names) {
       try {
-        const clone = join(repo, ".git");
-        mkdirSync(clone, { recursive: true });
-        const entries = readdirSync(repo).filter((e) => e !== ".git" && e !== ".claude" && e !== "HEAD");
-        for (const entry of [...entries, "HEAD"]) renameSync(join(repo, entry), join(clone, entry));
-        for (const id of list(join(clone, "worktrees"))) {
-          const admin = join(clone, "worktrees", id);
-          // `gitdir` names the worktree's `.git` file, which names this folder back.
-          const pointer = join(admin, "gitdir");
-          const dotGit = existsSync(pointer) ? readFileSync(pointer, "utf8").trim() : "";
-          // Gone, or made by a git with relative paths (no Heron worktree): `worktree prune` deals with it.
-          if (isAbsolute(dotGit) && existsSync(dotGit)) writeFileSync(dotGit, `gitdir: ${admin.replace(/\\/g, "/")}\n`);
-        }
+        migrateClone(paths, owner, name);
       } catch (err) {
-        console.error(`Couldn't move the clone in ${repo} to its .git folder`, err);
+        console.error(`Couldn't move the clone of ${owner}/${name} to its .git folder`, err);
       }
     }
   }
+}
+
+/**
+ * Clones used to be bare repos at `repos/<owner>/<name>` itself; they now live in its `.git`. The folder is
+ * renamed aside, then into the new repo folder's `.git`: each step moves the whole clone or none of it, and a
+ * clone left aside is picked up by the next call. Refs (iteration results) are kept. Its linked worktrees still
+ * point at the old place until `git worktree repair` runs in it (`GitClient.ensureClone`).
+ *
+ * Run before `ensureClone`, which re-clones a clone dir with no `HEAD`: throws rather than leave it that way.
+ */
+export function migrateClone(paths: Paths, owner: string, name: string): void {
+  const repo = paths.repoDir(owner, name);
+  const moving = paths.movingCloneDir(owner, name);
+  if (!existsSync(moving)) {
+    if (!existsSync(join(repo, "HEAD"))) return;
+    renameSync(repo, moving);
+  }
+  mkdirSync(repo, { recursive: true });
+  renameSync(moving, paths.cloneDir(owner, name));
 }
