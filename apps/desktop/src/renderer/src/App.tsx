@@ -44,13 +44,27 @@ export function App() {
     void qc.invalidateQueries({ queryKey: orpc.doctor.key() });
   }, [pauseReasons, qc]);
 
-  // Keep the selection on a PR the sidebar lists; with none listed, select nothing. The fallback
-  // prefers an open PR, since closed and merged ones sit in the sidebar's collapsed section.
+  // Keep the selection on a PR the sidebar lists. The fallback only ever picks an open PR: closed
+  // and merged ones sit in the sidebar's collapsed section, so with no open PR, select nothing.
   useEffect(() => {
     if (!list) return;
     if (selected !== null && listed.some((p) => p.id === selected)) return;
-    setSelected((listed.find((p) => p.state === "open") ?? listed[0])?.id ?? null);
+    setSelected(listed.find((p) => p.state === "open")?.id ?? null);
   }, [list, listed, selected]);
+
+  // When the focused PR closes or merges while you're on it, let it go: the fallback above then
+  // picks an open PR or leaves the main screen empty. A closed PR you click into stays put.
+  const selectedState = useRef<{ id: number; state: string } | null>(null);
+  useEffect(() => {
+    const current = list?.find((p) => p.id === selected);
+    const prev = selectedState.current;
+    selectedState.current = current ? { id: current.id, state: current.state } : null;
+    if (!current || !prev || prev.id !== current.id) return;
+    if (prev.state === "open" && current.state !== "open") {
+      setSelected(null);
+      setRequestedTab(null);
+    }
+  }, [list, selected]);
 
   // A newly arrived PR takes the selection, but only from one that's settled (closed, merged, or
   // no issues), never from one still needing you. The first list only records what's there.
