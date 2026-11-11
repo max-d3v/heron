@@ -1,7 +1,7 @@
 import type { IterationSummary, PrDetail as PrDetailDto, RunSummary } from "@heron/rpc";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, ExternalLink, Play, RotateCw, Square } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { shortSha } from "../lib/format";
 import { defaultIteration, isFinishedIteration } from "../lib/iterations";
 import { errorText, orpc } from "../lib/rpc";
@@ -41,6 +41,9 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
   const [transcriptFor, setTranscriptFor] = useState<TranscriptFor>(requestedTab?.tab === "iteration" ? "iteration" : "review");
   const [pickedRunId, setPickedRunId] = useState<number | null>(null);
   const [pickedIterationId, setPickedIterationId] = useState<number | null>(null);
+  // The newest active run / open iteration seen so far. Ids only grow, so a larger one is one that just started.
+  const lastActiveRunId = useRef<number | null>(null);
+  const lastOpenIterationId = useRef<number | null>(null);
 
   const setTab = (t: Tab) => {
     setTabState(t);
@@ -50,17 +53,25 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
   useEffect(() => {
     setPickedRunId(null);
     setPickedIterationId(null);
+    lastActiveRunId.current = null;
+    lastOpenIterationId.current = null;
   }, [prId]);
 
   // A review that starts (Re-run, Review now, a push) takes over the Review tab from a run picked earlier.
+  // Only a newer id counts: when the newest active run ends while an older one is still active, the pick stays.
   const activeRunId = query.data?.runs.find(isActiveRun)?.id ?? null;
   useEffect(() => {
-    if (activeRunId !== null) setPickedRunId(null);
+    if (activeRunId === null || (lastActiveRunId.current !== null && activeRunId <= lastActiveRunId.current)) return;
+    lastActiveRunId.current = activeRunId;
+    setPickedRunId(null);
   }, [activeRunId]);
-  // Likewise a new iteration (from the moment its feedback batch opens) takes over the Iteration tab.
+  // Likewise a new iteration (from the moment its feedback batch opens) takes over the Iteration tab;
+  // a batch that finishes (e.g. triaged to skipped) or is cancelled, uncovering an older unfinished one, doesn't.
   const openIterationId = query.data?.iterations.find((i) => !isFinishedIteration(i))?.id ?? null;
   useEffect(() => {
-    if (openIterationId !== null) setPickedIterationId(null);
+    if (openIterationId === null || (lastOpenIterationId.current !== null && openIterationId <= lastOpenIterationId.current)) return;
+    lastOpenIterationId.current = openIterationId;
+    setPickedIterationId(null);
   }, [openIterationId]);
 
   // A notification or the menu bar asked for a tab (e.g. Ready to push → Iteration).
@@ -89,7 +100,9 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
     (pickedIterationId !== null ? pr.iterations.find((i) => i.id === pickedIterationId) : null) ??
     defaultIteration(pr.iterations, pr.state === "open");
   const runCount = pr.runs.length + pr.iterations.filter((i) => i.startedAt !== null || i.state === "skipped").length;
-  const picked = tab === "iteration" ? pickedIterationId !== null && shownIteration : tab === "review" && pickedRunId !== null && shown;
+  // A pick counts only while it's still in the PR's runs; otherwise the tab falls back to the latest.
+  const runPicked = pickedRunId !== null && shown?.id === pickedRunId;
+  const iterationPicked = pickedIterationId !== null && shownIteration?.id === pickedIterationId;
 
   return (
     <div className="flex h-full flex-col">
@@ -107,20 +120,20 @@ export function PrDetail({ prId, requestedTab }: { prId: number; requestedTab?: 
             { value: "pr", label: "Pull Request" },
           ]}
         />
-        {picked && (
-          <button
-            className="text-[11.5px] text-accent hover:underline"
-            onClick={() => (tab === "iteration" ? setPickedIterationId(null) : setPickedRunId(null))}
-          >
-            {tab === "iteration" ? `Showing iteration ${shownIteration!.id}` : `Showing run of ${shortSha(shown!.headSha)}`} · show latest
+        {tab === "review" && runPicked && (
+          <button className="text-[11.5px] text-accent hover:underline" onClick={() => setPickedRunId(null)}>
+            Showing run of {shortSha(shown!.headSha)} · show latest
+          </button>
+        )}
+        {tab === "iteration" && iterationPicked && (
+          <button className="text-[11.5px] text-accent hover:underline" onClick={() => setPickedIterationId(null)}>
+            Showing iteration {shownIteration!.id} · show latest
           </button>
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "review" && <ReviewTab pr={pr} run={shown} picked={pickedRunId !== null && shown?.id === pickedRunId} />}
-        {tab === "iteration" && (
-          <IterationTab pr={pr} iteration={shownIteration} picked={pickedIterationId !== null && shownIteration?.id === pickedIterationId} />
-        )}
+        {tab === "review" && <ReviewTab pr={pr} run={shown} picked={runPicked} />}
+        {tab === "iteration" && <IterationTab pr={pr} iteration={shownIteration} picked={iterationPicked} />}
         {tab === "activity" && <ActivityTab prId={pr.id} />}
         {tab === "runs" && (
           <RunsTab
