@@ -447,7 +447,7 @@ export class IterationScheduler {
     const clone = paths.cloneDir(repo.owner, repo.name);
     const dir = paths.iterationWorktreesDir(repo.owner, repo.name);
     const prefix = paths.prIterationWorktreePrefix(number);
-    const names = await readdir(dir).catch(() => [] as string[]);
+    const names = await readdir(dir).catch((): string[] => []);
     for (const name of names.filter((n) => n.startsWith(prefix))) await git.removeWorktree(clone, join(dir, name));
     await git.removeWorktree(clone, paths.legacyPrIterationWorktreesDir(repo.owner, repo.name, number));
   }
