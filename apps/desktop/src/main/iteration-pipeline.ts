@@ -253,7 +253,7 @@ export class IterationPipeline {
       cwdKind = "local";
     } else {
       // The PR's shared worktree from before each iteration had its own: the new ones go inside its folder.
-      const shared = paths.prIterationWorktreesDir(owner, name, pr.number);
+      const shared = paths.legacyPrIterationWorktreesDir(owner, name, pr.number);
       if (existsSync(join(shared, ".git"))) await git.removeWorktree(clone, shared);
       // Kept until the PR closes, so the agent's session can be continued there ("Open in Claude").
       // A retry resets it to the head and cleans it (`clean -ffdx`), so the setup command runs in full every time.

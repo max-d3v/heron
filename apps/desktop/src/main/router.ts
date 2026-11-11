@@ -252,7 +252,7 @@ export function createRouter(s: Services) {
         s.store.prsChanged();
         await rm(join(s.paths.worktrees, repo.owner, repo.name), { recursive: true, force: true });
         await rm(join(s.paths.worktrees, "iterations", repo.owner, repo.name), { recursive: true, force: true });
-        await rm(s.paths.cloneDir(repo.owner, repo.name), { recursive: true, force: true });
+        await rm(s.paths.repoDir(repo.owner, repo.name), { recursive: true, force: true });
       }),
       pickCheckout: os.repos.pickCheckout.handler(async ({ input }) => {
         const repo = requireRepo(input.id);
