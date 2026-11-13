@@ -78,7 +78,7 @@ Settings → **General** → **Dry run** runs reviews but keeps them in the app 
 
 ## The review skill
 
-Heron comes with a `pr-review` skill, and the Default profile uses it. **We highly recommend it.** It looks for bugs, questionable decisions and code smells, and leaves one short comment on the lines each problem concerns. You can read and edit it in Settings → **Skills**.
+Heron comes with a `pr-review` skill, and the Default profile uses it. **We highly recommend it.** It looks for bugs and code smells, and leaves one short comment on the lines each problem concerns. You can read and edit it in Settings → **Skills**.
 
 If you write your own skill or prompt, prioritize finding concrete bugs and keep each correction short and to the point. Big reviews tend to be ignored or taken less seriously.
 
