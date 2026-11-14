@@ -1,13 +1,12 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
 import type { Skill } from "@heron/core";
 import type { HeronDb } from "@heron/db";
+import { SKILL_NAME_RE } from "@heron/rpc";
 import type { Paths } from "./paths.ts";
-
-const NAME_RE = /^[a-z0-9][a-z0-9-_]*$/i;
 
 export const linkedSkillsRoot = () => join(homedir(), ".claude", "skills");
 
@@ -73,14 +72,37 @@ export class SkillService {
     const mdPath = join(src, "SKILL.md");
     if (!existsSync(mdPath)) throw new Error("That folder has no SKILL.md.");
     const fm = readFrontmatter(await readFile(mdPath, "utf8"));
-    const name = fm.name && NAME_RE.test(fm.name) ? fm.name : basename(src);
-    if (!NAME_RE.test(name)) throw new Error(`"${name}" isn't a valid skill name (letters, digits, - and _).`);
-    if (this.db.listSkills().some((s) => s.source === "imported" && s.name === name)) {
-      throw new Error(`A skill named "${name}" is already imported.`);
-    }
-    const dest = join(this.paths.pluginSkills, name);
+    const name = fm.name && SKILL_NAME_RE.test(fm.name) ? fm.name : basename(src);
+    if (!SKILL_NAME_RE.test(name)) throw new Error(`"${name}" isn't a valid skill name (letters, digits, - and _).`);
+    const dest = this.claimName(name);
     await copySkill(src, dest);
     return this.db.addSkill({ name, source: "imported", path: dest, contentHash: await hashSkill(dest) });
+  }
+
+  /**
+   * Start a new skill in Heron's plugin: a folder holding a SKILL.md with only its frontmatter.
+   * `name` is already validated by the `skills.create` contract.
+   */
+  async createBlank(name: string): Promise<Skill> {
+    const dest = this.claimName(name);
+    await rm(dest, { recursive: true, force: true });
+    await mkdir(dest, { recursive: true });
+    await writeFile(join(dest, "SKILL.md"), `---\nname: ${name}\ndescription: \n---\n\n`);
+    return this.db.addSkill({ name, source: "imported", path: dest, contentHash: await hashSkill(dest) });
+  }
+
+  /**
+   * The folder a new imported skill named `name` goes in. Refuses a name already imported, compared
+   * without case (skill folders can share a case-insensitive filesystem). The DB decides: a folder
+   * left there with no skill row is an orphan, and the caller replaces it.
+   */
+  private claimName(name: string): string {
+    const dest = join(this.paths.pluginSkills, name);
+    const lower = name.toLowerCase();
+    if (this.db.listSkills().some((s) => s.source === "imported" && s.name.toLowerCase() === lower)) {
+      throw new Error(`A skill named "${name}" already exists.`);
+    }
+    return dest;
   }
 
   /**

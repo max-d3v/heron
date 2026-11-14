@@ -1,18 +1,19 @@
-import type { SkillDto } from "@heron/rpc";
+import { skillName, type SkillDto } from "@heron/rpc";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, FolderOpen, Link, Plus, Sparkles, TriangleAlert } from "lucide-react";
+import { FilePlus, FileText, FolderOpen, Link, Plus, Sparkles, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "../lib/cn";
 import { labels } from "../lib/platform";
 import { errorText, orpc } from "../lib/rpc";
 import { HeaderActions } from "./HeaderActions";
-import { Badge, Button, Confirm, Dialog, Empty, ErrorNote, MenuButton, Spinner, TextArea } from "../components/ui";
+import { Badge, Button, Confirm, Dialog, Empty, ErrorNote, MenuButton, Spinner, TextArea, TextField } from "../components/ui";
 
 export function SkillsPane() {
   const qc = useQueryClient();
   const skills = useQuery(orpc.skills.list.queryOptions());
   const [selected, setSelected] = useState<number | null>(null);
   const [linking, setLinking] = useState(false);
+  const [creating, setCreating] = useState(false);
   const invalidate = () => qc.invalidateQueries({ queryKey: orpc.skills.key() });
   const importDialog = useMutation(
     orpc.skills.importFromDialog.mutationOptions({
@@ -57,6 +58,7 @@ export function SkillsPane() {
           label="Add skill"
           busy={importDialog.isPending}
           items={[
+            { label: "New blank skill…", icon: <FilePlus className="size-3.5" />, onSelect: () => setCreating(true) },
             { label: "Import folder…", icon: <FolderOpen className="size-3.5" />, onSelect: () => importDialog.mutate({}) },
             { label: "Link from ~/.claude/skills…", icon: <Link className="size-3.5" />, onSelect: () => setLinking(true) },
           ]}
@@ -67,10 +69,18 @@ export function SkillsPane() {
           <SkillEditor key={current.id} skill={current} onRemoved={() => setSelected(null)} />
         ) : (
           <Empty icon={<Sparkles className="size-8" />} title="Use a skill as a review profile">
-            Import a skill folder (copied into Heron, editable here) or link one from ~/.claude/skills (used in place). Then pick it in a profile.
+            Start a blank skill and write it here, import a skill folder (copied into Heron, editable here) or link one from ~/.claude/skills (used in place). Then pick it in a profile.
           </Empty>
         )}
       </div>
+      <CreateDialog
+        open={creating}
+        onOpenChange={setCreating}
+        onCreated={(s) => {
+          void invalidate();
+          setSelected(s.id);
+        }}
+      />
       <LinkDialog
         open={linking}
         onOpenChange={setLinking}
@@ -176,6 +186,69 @@ function SkillEditor({ skill, onRemoved }: { skill: SkillDto; onRemoved: () => v
         onConfirm={() => remove.mutate({ id: skill.id })}
       />
     </div>
+  );
+}
+
+function CreateDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (v: boolean) => void; onCreated: (s: SkillDto) => void }) {
+  const [name, setName] = useState("");
+  const create = useMutation(
+    orpc.skills.create.mutationOptions({
+      onSuccess: (s) => {
+        onCreated(s);
+        onOpenChange(false);
+      },
+    }),
+  );
+  useEffect(() => {
+    if (open) {
+      setName("");
+      create.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  const trimmed = name.trim();
+  const parsed = skillName.safeParse(name);
+  const valid = parsed.success;
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New blank skill"
+      description="Creates an empty SKILL.md in Heron for you to write in."
+      width={420}
+      footer={
+        <>
+          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="primary" type="submit" form="create-skill" disabled={!valid} busy={create.isPending}>
+            Create
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="create-skill"
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (parsed.success && !create.isPending) create.mutate({ name: parsed.data });
+        }}
+      >
+        <TextField
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="skill-name"
+          aria-label="Skill name"
+          spellCheck={false}
+          className="h-[28px] w-full font-mono"
+        />
+        <div className="text-[11.5px] text-fg-3">
+          {trimmed && !valid ? "Use letters, digits, - and _." : <>Profiles run it as <span className="font-mono">/heron:{trimmed || "skill-name"}</span>.</>}
+        </div>
+        {create.error && <ErrorNote>{errorText(create.error)}</ErrorNote>}
+      </form>
+    </Dialog>
   );
 }
 
