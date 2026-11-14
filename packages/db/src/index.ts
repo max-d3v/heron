@@ -444,7 +444,7 @@ export class HeronDb {
 
   addRepo(input: { owner: string; name: string; scope: RepoScope; profileId: number | null }): Repo {
     const info = this.sql
-      .prepare("INSERT INTO repos (owner, name, scope, profile_id, iteration_comments, created_at) VALUES (?, ?, ?, ?, 'all', ?)")
+      .prepare("INSERT INTO repos (owner, name, scope, profile_id, iteration_comments, iteration_auto_start, created_at) VALUES (?, ?, ?, ?, 'all', 1, ?)")
       .run(input.owner, input.name, input.scope, input.profileId, Date.now());
     return this.getRepo(Number(info.lastInsertRowid))!;
   }

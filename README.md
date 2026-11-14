@@ -100,7 +100,7 @@ Each lap checks the last fix, so the PR gets cleaner until the review has nothin
 
 ### Turning it on
 
-Iterations are **off** for every repo. Turn them on in Settings → **Repos** → **Iteration**. With the defaults, Claude only sorts the comments: you click **Iterate** to have it fix them and **Push** to send its commit, after reading the diff in the app. Set **Automatic iteration** to **Automatic** and turn on **Push automatically** to let the loop run with no clicks.
+Iterations are **off** for every repo. Turn them on in Settings → **Repos** → **Iteration**. With the defaults, Claude picks up new comments and fixes them on its own, and you click **Push** to send its commit after reading the diff in the app. Set **Automatic iteration** to **Manual** to have it wait for **Iterate**, or turn on **Push automatically** to let the loop run with no clicks.
 
 ### One lap
 
