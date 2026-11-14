@@ -308,6 +308,11 @@ export function createRouter(s: Services) {
         s.bus.publish("app", { kind: "config", what: "skills" });
         return skillDto(skill.id);
       }),
+      create: os.skills.create.handler(async ({ input }) => {
+        const skill = await s.skills.createBlank(input.name);
+        s.bus.publish("app", { kind: "config", what: "skills" });
+        return skillDto(skill.id);
+      }),
       linkable: os.skills.linkable.handler(() => s.skills.listLinkable()),
       link: os.skills.link.handler(async ({ input }) => {
         const skill = await s.skills.link(input.name);

@@ -515,6 +515,8 @@ export const contract = {
     list: oc.output(z.array(skill)),
     /** Opens a folder picker in the main process and copies the chosen skill in. */
     importFromDialog: oc.output(skill.nullable()),
+    /** Creates an empty skill in Heron, ready to be written in the editor. */
+    create: oc.input(z.object({ name: z.string() })).output(skill),
     linkable: oc.output(z.array(z.object({ name: z.string(), description: z.string().nullable(), linked: z.boolean() }))),
     link: oc.input(z.object({ name: z.string() })).output(skill),
     remove: oc.input(byId),

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
 import type { Skill } from "@heron/core";
@@ -80,6 +80,19 @@ export class SkillService {
     }
     const dest = join(this.paths.pluginSkills, name);
     await copySkill(src, dest);
+    return this.db.addSkill({ name, source: "imported", path: dest, contentHash: await hashSkill(dest) });
+  }
+
+  /** Start a new skill in Heron's plugin: a folder holding a SKILL.md with only its frontmatter. */
+  async createBlank(rawName: string): Promise<Skill> {
+    const name = rawName.trim();
+    if (!NAME_RE.test(name)) throw new Error("Use letters, digits, - and _ for the name, starting with a letter or digit.");
+    const dest = join(this.paths.pluginSkills, name);
+    if (existsSync(dest) || this.db.listSkills().some((s) => s.source === "imported" && s.name.toLowerCase() === name.toLowerCase())) {
+      throw new Error(`A skill named "${name}" already exists.`);
+    }
+    await mkdir(dest, { recursive: true });
+    await writeFile(join(dest, "SKILL.md"), `---\nname: ${name}\ndescription: \n---\n\n`);
     return this.db.addSkill({ name, source: "imported", path: dest, contentHash: await hashSkill(dest) });
   }
 
