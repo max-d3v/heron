@@ -393,7 +393,7 @@ An agent addresses review feedback on **your own PRs**, and Heron commits and pu
 Repos (Settings → Repos): the **Review** and **Iteration** sections each have their own on/off switch (`reviewEnabled`, on by default; `iterationEnabled`, off by default). A repo with both off isn't polled. Iteration fields:
 | Field | Notes |
 |---|---|
-| `iterationAutoStart` | "Automatic iteration": Manual (default) \| Automatic. Whether the agent starts on its own after triage (§15.3). Shown first. |
+| `iterationAutoStart` | "Automatic iteration": Manual \| Automatic (default). Whether the agent starts on its own after triage (§15.3). Shown first. |
 | `iterationComments` | "Comments to iterate on": `all` (default) \| `mine`. Which comments count (§15.3). |
 | `iterationProfileId` | `null` → default iteration profile |
 | `iterationAutoPush` | Default **off**: the result waits for **Push**. |
