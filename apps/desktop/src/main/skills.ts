@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
 import type { Skill } from "@heron/core";
 import type { HeronDb } from "@heron/db";
-import { SKILL_NAME_RE, skillName } from "@heron/rpc";
+import { SKILL_NAME_RE } from "@heron/rpc";
 import type { Paths } from "./paths.ts";
 
 export const linkedSkillsRoot = () => join(homedir(), ".claude", "skills");
@@ -79,12 +79,13 @@ export class SkillService {
     return this.db.addSkill({ name, source: "imported", path: dest, contentHash: await hashSkill(dest) });
   }
 
-  /** Start a new skill in Heron's plugin: a folder holding a SKILL.md with only its frontmatter. */
-  async createBlank(rawName: string): Promise<Skill> {
-    const parsed = skillName.safeParse(rawName);
-    if (!parsed.success) throw new Error(parsed.error.issues[0]!.message);
-    const name = parsed.data;
+  /**
+   * Start a new skill in Heron's plugin: a folder holding a SKILL.md with only its frontmatter.
+   * `name` is already validated by the `skills.create` contract.
+   */
+  async createBlank(name: string): Promise<Skill> {
     const dest = this.claimName(name);
+    await rm(dest, { recursive: true, force: true });
     await mkdir(dest, { recursive: true });
     await writeFile(join(dest, "SKILL.md"), `---\nname: ${name}\ndescription: \n---\n\n`);
     return this.db.addSkill({ name, source: "imported", path: dest, contentHash: await hashSkill(dest) });
@@ -92,12 +93,13 @@ export class SkillService {
 
   /**
    * The folder a new imported skill named `name` goes in. Refuses a name already imported, compared
-   * without case (skill folders can share a case-insensitive filesystem), or whose folder exists.
+   * without case (skill folders can share a case-insensitive filesystem). The DB decides: a folder
+   * left there with no skill row is an orphan, and the caller replaces it.
    */
   private claimName(name: string): string {
     const dest = join(this.paths.pluginSkills, name);
     const lower = name.toLowerCase();
-    if (existsSync(dest) || this.db.listSkills().some((s) => s.source === "imported" && s.name.toLowerCase() === lower)) {
+    if (this.db.listSkills().some((s) => s.source === "imported" && s.name.toLowerCase() === lower)) {
       throw new Error(`A skill named "${name}" already exists.`);
     }
     return dest;
