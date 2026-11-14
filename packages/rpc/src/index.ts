@@ -25,6 +25,10 @@ const reviewState = z.enum(REVIEW_STATES);
 const effort = z.enum(EFFORT_LEVELS);
 const side = z.enum(["LEFT", "RIGHT"]);
 
+/** What a skill imported into Heron can be called: letters, digits, - and _, starting with a letter or digit. */
+export const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-_]*$/i;
+export const skillName = z.string().trim().regex(SKILL_NAME_RE, "Use letters, digits, - and _ for the name, starting with a letter or digit.");
+
 /**
  * What the sidebar dot shows: the latest run's state folded into a few buckets. `completed`
  * splits in two: `no_issues` found nothing to raise, `not_posted` is a dry run that did.
@@ -516,7 +520,7 @@ export const contract = {
     /** Opens a folder picker in the main process and copies the chosen skill in. */
     importFromDialog: oc.output(skill.nullable()),
     /** Creates an empty skill in Heron, ready to be written in the editor. */
-    create: oc.input(z.object({ name: z.string() })).output(skill),
+    create: oc.input(z.object({ name: skillName })).output(skill),
     linkable: oc.output(z.array(z.object({ name: z.string(), description: z.string().nullable(), linked: z.boolean() }))),
     link: oc.input(z.object({ name: z.string() })).output(skill),
     remove: oc.input(byId),

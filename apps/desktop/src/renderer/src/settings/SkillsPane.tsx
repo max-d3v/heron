@@ -1,4 +1,4 @@
-import type { SkillDto } from "@heron/rpc";
+import { skillName, type SkillDto } from "@heron/rpc";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FilePlus, FileText, FolderOpen, Link, Plus, Sparkles, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -207,7 +207,8 @@ function CreateDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   const trimmed = name.trim();
-  const valid = /^[a-z0-9][a-z0-9-_]*$/i.test(trimmed);
+  const parsed = skillName.safeParse(name);
+  const valid = parsed.success;
 
   return (
     <Dialog
@@ -230,7 +231,7 @@ function CreateDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpen
         className="flex flex-col gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid && !create.isPending) create.mutate({ name: trimmed });
+          if (parsed.success && !create.isPending) create.mutate({ name: parsed.data });
         }}
       >
         <TextField
