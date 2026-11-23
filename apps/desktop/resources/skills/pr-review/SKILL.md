@@ -9,9 +9,18 @@ Review the change for two kinds of problems: **bugs** and **smells**. Report onl
 
 Places where an overlooked case makes the code do the wrong thing: unhandled edge cases, wrong logic, race conditions, broken error handling, security holes, data loss, breaking changes to an API or contract.
 
+"Wrong" means wrong against what the change itself intends, not against what you would have built. Learn the intent before judging: the PR description, commit messages, doc comments, prompts and tests the change touches. A bug is a case the author did not mean to allow, where a user, an input or a sequence of actions breaks the app: a crash, an error, lost or corrupted data, a broken contract, or output that contradicts the change's own stated behavior.
+
 - Name the concrete trigger: the input or state, and the wrong result it leads to.
 - Confirm it by reading the real code path (callers, types, the code around the change), not just the changed lines.
 - If you can't confirm it, drop it. No "possible bug" comments.
+
+A design decision is not a bug. Drop the finding when:
+
+- The behavior follows from a choice the change makes on purpose, and you only see a downside or a trade-off of that choice.
+- It is really a question of what the product should do.
+- The comment offers two or more ways to solve it, or leaving the code as it is would be one of them. That alone disqualifies it: a real bug has one right outcome, and options mean a decision.
+- Nothing breaks: the app keeps working and only behaves differently from how you would have designed it.
 
 ## Smells
 
